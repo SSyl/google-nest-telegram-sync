@@ -22,9 +22,14 @@ FORCE_RESEND_ALL = os.getenv("FORCE_RESEND_ALL", "false").lower() in ("true", "1
 TIMEZONE = os.getenv("TIMEZONE")
 TIME_FORMAT = os.getenv("TIME_FORMAT")
 
-assert GOOGLE_MASTER_TOKEN and GOOGLE_USERNAME and TELEGRAM_CHANNEL_ID and TELEGRAM_BOT_TOKEN
+# Get refresh interval from env, default to 2 minutes
+try:
+    REFRESH_INTERVAL_MINUTES = int(os.getenv("REFRESH_INTERVAL_MINUTES", "2"))
+except ValueError:
+    logger.warning("Invalid REFRESH_INTERVAL_MINUTES value, using default of 2 minutes")
+    REFRESH_INTERVAL_MINUTES = 2
 
-REFRESH_EVERY_X_MINUTES=2
+assert GOOGLE_MASTER_TOKEN and GOOGLE_USERNAME and TELEGRAM_CHANNEL_ID and TELEGRAM_BOT_TOKEN
 
 
 def main():
@@ -41,13 +46,14 @@ def main():
     tes = TelegramEventsSync(
         telegram_bot_token=TELEGRAM_BOT_TOKEN,
         telegram_channel_id=TELEGRAM_CHANNEL_ID,
-        timezone = TIMEZONE,
-        time_format = TIME_FORMAT,
-        force_resend_all = FORCE_RESEND_ALL,
+        timezone=TIMEZONE,
+        time_format=TIME_FORMAT,
+        force_resend_all=FORCE_RESEND_ALL,
         nest_camera_devices=nest_camera_devices
     )
 
     logger.info("Initialized a Telegram Syncer")
+    logger.info(f"Syncing every {REFRESH_INTERVAL_MINUTES} minute(s)")
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -57,7 +63,7 @@ def main():
     scheduler.add_job(
         tes.sync,
         'interval',
-        minutes=REFRESH_EVERY_X_MINUTES,
+        minutes=REFRESH_INTERVAL_MINUTES,
         next_run_time=datetime.datetime.now() + datetime.timedelta(seconds=10)
     )
     scheduler.start()
@@ -67,7 +73,7 @@ def main():
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
-    	loop.close()
+        loop.close()
 
 if __name__ == "__main__":
     main()
