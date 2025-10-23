@@ -41,9 +41,11 @@ def main():
     )
 
     logger.info("Initialized a Telegram Syncer")
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
     # Schedule the job to run every x minutes
-    scheduler = AsyncIOScheduler()
+    scheduler = AsyncIOScheduler(event_loop=loop)
     scheduler.add_job(
         tes.sync, 
         'interval', 
@@ -53,10 +55,10 @@ def main():
     scheduler.start()
 
     try:
-        asyncio.get_event_loop().run_forever()
+        loop.run_forever()
     except (KeyboardInterrupt, SystemExit):
         pass
-
-    
+    finally:
+    	loop.close()
 if __name__ == "__main__":
     main()
