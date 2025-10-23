@@ -1,0 +1,17 @@
+services:
+  nest-sync:
+    build: .
+    container_name: nest-telegram-sync
+    restart: unless-stopped
+    environment:
+      - GOOGLE_MASTER_TOKEN=${GOOGLE_MASTER_TOKEN}
+      - GOOGLE_USERNAME=${GOOGLE_USERNAME}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHANNEL_ID=${TELEGRAM_CHANNEL_ID}
+      - TIMEZONE=${TIMEZONE:-UTC}
+      - TIME_FORMAT=${TIME_FORMAT:-24h}
+      - FORCE_RESEND_ALL=${FORCE_RESEND_ALL:-false}
+    volumes:
+      - ./sent_events.json:/app/sent_events.json
+    env_file:
+      - .env
