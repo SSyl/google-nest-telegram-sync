@@ -17,6 +17,10 @@ GOOGLE_USERNAME = os.getenv("GOOGLE_USERNAME")
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
+FORCE_RESEND_ALL = os.getenv("FORCE_RESEND_ALL", "false").lower() in ("true", "1")
+
+TIMEZONE = os.getenv("TIMEZONE")
+TIME_FORMAT = os.getenv("TIME_FORMAT")
 
 assert GOOGLE_MASTER_TOKEN and GOOGLE_USERNAME and TELEGRAM_CHANNEL_ID and TELEGRAM_BOT_TOKEN
 
@@ -35,21 +39,25 @@ def main():
     logger.info(f"Found {len(nest_camera_devices)} Camera Device{'s' if len(nest_camera_devices) > 1 else ''}")
 
     tes = TelegramEventsSync(
-        telegram_bot_token=TELEGRAM_BOT_TOKEN, 
-        telegram_channel_id=TELEGRAM_CHANNEL_ID, 
+        telegram_bot_token=TELEGRAM_BOT_TOKEN,
+        telegram_channel_id=TELEGRAM_CHANNEL_ID,
+        timezone = TIMEZONE,
+        time_format = TIME_FORMAT,
+        force_resend_all = FORCE_RESEND_ALL,
         nest_camera_devices=nest_camera_devices
     )
 
     logger.info("Initialized a Telegram Syncer")
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
     # Schedule the job to run every x minutes
     scheduler = AsyncIOScheduler(event_loop=loop)
     scheduler.add_job(
-        tes.sync, 
-        'interval', 
-        minutes=REFRESH_EVERY_X_MINUTES, 
+        tes.sync,
+        'interval',
+        minutes=REFRESH_EVERY_X_MINUTES,
         next_run_time=datetime.datetime.now() + datetime.timedelta(seconds=10)
     )
     scheduler.start()
@@ -60,5 +68,6 @@ def main():
         pass
     finally:
     	loop.close()
+
 if __name__ == "__main__":
     main()
