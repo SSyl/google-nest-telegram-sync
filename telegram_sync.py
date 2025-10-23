@@ -21,7 +21,7 @@ class TelegramEventsSync(object):
 
     # Preset formats
     FORMAT_24H = '%H:%M:%S %d/%m/%Y'  # 23:40:50 22/10/2025
-    FORMAT_12H = '%I:%M:%S%p %m/%d/%Y'  # 11:40:50PM 10/22/2025
+    FORMAT_12H = '%I:%M:%S %p %m/%d/%Y'  # 11:40:50 PM 10/22/2025
     
     SENT_EVENTS_FILE = 'sent_events.json'
 
