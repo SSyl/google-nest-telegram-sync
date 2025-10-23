@@ -31,18 +31,18 @@ class TelegramEventsSync(object):
         self._nest_camera_devices = nest_camera_devices
         self._force_resend_all = force_resend_all
         
-        # Setup timezone
+        # Setup timezone for display purposes
         if timezone:
-            self._timezone = pytz.timezone(timezone)
+            self._display_timezone = pytz.timezone(timezone)
         else:
             # Auto-detect system timezone
             try:
                 import tzlocal
-                self._timezone = pytz.timezone(str(tzlocal.get_localzone()))
+                self._display_timezone = pytz.timezone(str(tzlocal.get_localzone()))
             except Exception:
-                self._timezone = pytz.UTC
+                self._display_timezone = pytz.UTC
         
-        logger.info(f"Using timezone: {self._timezone}")
+        logger.info(f"Using timezone for display: {self._display_timezone}")
         
         # Setup time format
         self._time_format = self._parse_time_format(time_format)
@@ -64,7 +64,7 @@ class TelegramEventsSync(object):
         try:
             with open(self.SENT_EVENTS_FILE, 'r') as f:
                 data = json.load(f)
-                # Optional: Clean up old entries (older than 7 days)
+                # Clean up entries older than 7 days
                 cutoff_time = datetime.datetime.now() - datetime.timedelta(days=7)
                 filtered = {
                     event_id: timestamp 
@@ -125,15 +125,15 @@ class TelegramEventsSync(object):
             # Assume it's a custom strftime format string
             return time_format
 
-    def _get_current_time(self):
-        """Get current time in the configured timezone"""
-        return self._timezone.localize(datetime.datetime.now())
+    def _get_current_time_utc(self):
+        """Get current time in UTC for API calls"""
+        return pytz.UTC.localize(datetime.datetime.utcnow())
 
     async def sync_single_nest_camera(self, nest_device : NestDoorbellDevice):
 
         logger.info(f"Syncing: {nest_device.device_id}")
         all_recent_camera_events : list[CameraEvent] = nest_device.get_events(
-            end_time = self._get_current_time(),
+            end_time = self._get_current_time_utc(),  # Always use UTC for API calls
             duration_minutes=3 * 60 # This is the maxmimum time Google is saving my videos
         )
 
@@ -152,7 +152,8 @@ class TelegramEventsSync(object):
             video_io = BytesIO(video_data)
 
             video_caption = f"{nest_device.device_name} clip"
-            event_local_time = camera_event_obj.start_time.astimezone(self._timezone)
+            # Convert event time to display timezone for the caption
+            event_local_time = camera_event_obj.start_time.astimezone(self._display_timezone)
             time_str = event_local_time.strftime(self._time_format)
             
             video_media = InputMediaVideo(
