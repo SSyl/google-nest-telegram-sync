@@ -23,7 +23,7 @@ class TelegramEventsSync(object):
     FORMAT_24H = '%H:%M:%S %d/%m/%Y'  # 23:40:50 22/10/2025
     FORMAT_12H = '%I:%M:%S %p %m/%d/%Y'  # 11:40:50 PM 10/22/2025
     
-    SENT_EVENTS_FILE = 'sent_events.json'
+    SENT_EVENTS_FILE = 'data/sent_events.json'
 
     def __init__(self, telegram_bot_token, telegram_channel_id, nest_camera_devices, timezone=None, time_format=None, force_resend_all=False) -> None:
         self._telegram_bot = Bot(token=telegram_bot_token)
