@@ -19,14 +19,17 @@ class CameraEvent(BaseModel):
 
     end_time: Optional[datetime.datetime] = None
 
+    class Config:
+        arbitrary_types_allowed = True
+
     @validator("end_time", pre=True, always=True)
     def set_end_time(cls, v, values, **kwargs):
-        """Set the eggs field based upon a spam value."""
+        """Set the end_time based on start_time + duration."""
         return values.get('start_time')+ values.get('duration')
-    
+
     @property
     def event_id(self):
-        """Set the eggs field based upon a spam value."""
+        """Generate unique event ID."""
         return f"{self.start_time.isoformat()}->{self.end_time.isoformat()}|{self.device.device_id}"
 
     @classmethod

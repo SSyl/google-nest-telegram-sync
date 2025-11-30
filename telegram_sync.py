@@ -22,14 +22,15 @@ class TelegramEventsSync(object):
     # Preset formats
     FORMAT_24H = '%H:%M:%S %d/%m/%Y'  # 23:40:50 22/10/2025
     FORMAT_12H = '%I:%M:%S %p %m/%d/%Y'  # 11:40:50 PM 10/22/2025
-    
-    SENT_EVENTS_FILE = 'data/sent_events.json'
 
-    def __init__(self, telegram_bot_token, telegram_channel_id, nest_camera_devices, timezone=None, time_format=None, force_resend_all=False) -> None:
+    SENT_EVENTS_FILE = 'sent_events.json'
+
+    def __init__(self, telegram_bot_token, telegram_channel_id, nest_camera_devices, timezone=None, time_format=None, force_resend_all=False, dry_run=False) -> None:
         self._telegram_bot = Bot(token=telegram_bot_token)
         self._telegram_channel_id = telegram_channel_id
         self._nest_camera_devices = nest_camera_devices
         self._force_resend_all = force_resend_all
+        self._dry_run = dry_run
         
         # Setup timezone for display purposes
         if timezone:
@@ -58,16 +59,22 @@ class TelegramEventsSync(object):
 
     def _load_sent_events(self):
         """Load sent event IDs from JSON file"""
+        # Ensure the data directory exists
+        data_dir = os.path.dirname(self.SENT_EVENTS_FILE)
+        if data_dir and not os.path.exists(data_dir):
+            os.makedirs(data_dir, exist_ok=True)
+            logger.info(f"Created directory: {data_dir}")
+
         if not os.path.exists(self.SENT_EVENTS_FILE):
             return set()
-        
+
         try:
             with open(self.SENT_EVENTS_FILE, 'r') as f:
                 data = json.load(f)
                 # Clean up entries older than 7 days
                 cutoff_time = datetime.datetime.now() - datetime.timedelta(days=7)
                 filtered = {
-                    event_id: timestamp 
+                    event_id: timestamp
                     for event_id, timestamp in data.items()
                     if datetime.datetime.fromisoformat(timestamp) > cutoff_time
                 }
@@ -151,22 +158,26 @@ class TelegramEventsSync(object):
             video_data = nest_device.download_camera_event(camera_event_obj)
             video_io = BytesIO(video_data)
 
-            video_caption = f"{nest_device.device_name} clip"
             # Convert event time to display timezone for the caption
             event_local_time = camera_event_obj.start_time.astimezone(self._display_timezone)
             time_str = event_local_time.strftime(self._time_format)
-            
+
+            video_caption = f"{nest_device.device_name} [{time_str}]"
+
             video_media = InputMediaVideo(
                 media=video_io,
-                caption=f"{video_caption} [{time_str}]"
+                caption=video_caption
             )
 
-            await self._telegram_bot.send_media_group(
-                chat_id=self._telegram_channel_id,
-                media=[video_media],
-                disable_notification=True,
-            )
-            logger.debug("Sent clip successfully")
+            if self._dry_run:
+                logger.info(f"[DRY RUN] Would send: {video_caption} ({len(video_data)} bytes)")
+            else:
+                await self._telegram_bot.send_media_group(
+                    chat_id=self._telegram_channel_id,
+                    media=[video_media],
+                    disable_notification=True,
+                )
+                logger.debug("Sent clip successfully")
 
             self._recent_events.add(camera_event_obj.event_id)
 
