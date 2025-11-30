@@ -18,6 +18,7 @@ GOOGLE_USERNAME = os.getenv("GOOGLE_USERNAME")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
 FORCE_RESEND_ALL = os.getenv("FORCE_RESEND_ALL", "false").lower() in ("true", "1")
+DRY_RUN = os.getenv("DRY_RUN", "false").lower() in ("true", "1")
 
 TIMEZONE = os.getenv("TIMEZONE")
 TIME_FORMAT = os.getenv("TIME_FORMAT")
@@ -49,10 +50,13 @@ def main():
         timezone=TIMEZONE,
         time_format=TIME_FORMAT,
         force_resend_all=FORCE_RESEND_ALL,
+        dry_run=DRY_RUN,
         nest_camera_devices=nest_camera_devices
     )
 
     logger.info("Initialized a Telegram Syncer")
+    if DRY_RUN:
+        logger.warning("DRY RUN MODE ENABLED - Videos will NOT be sent to Telegram!")
     logger.info(f"Syncing every {REFRESH_INTERVAL_MINUTES} minute(s)")
 
     loop = asyncio.new_event_loop()

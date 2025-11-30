@@ -18,11 +18,28 @@ class NestDoorbellDevice(object):
         self._device_name = device_name
 
     def __parse_events(self, events_xml):
+        from tools import VERBOSE
+
+        if VERBOSE:
+            logger.debug(f"Full XML response:\n{events_xml.decode('utf-8') if isinstance(events_xml, bytes) else events_xml}")
+
         root = ET.fromstring(events_xml)
+
+        if VERBOSE:
+            # Check root attributes for any metadata
+            logger.debug(f"Root MPD attributes: {root.attrib}")
+
         periods = root.findall(".//{urn:mpeg:dash:schema:mpd:2011}Period")
-        return [
-            CameraEvent.from_attrib(period.attrib, self) for period in periods
-        ]
+        events = []
+        for period in periods:
+            if VERBOSE:
+                logger.debug(f"XML Period attributes: {period.attrib}")
+                # Check ALL child elements recursively
+                for child in period.iter():
+                    if child.attrib:
+                        logger.debug(f"  Child {child.tag}: {child.attrib}")
+            events.append(CameraEvent.from_attrib(period.attrib, self))
+        return events
 
     def __download_event_by_time(self, start_time, end_time):
         params = {
@@ -48,13 +65,13 @@ class NestDoorbellDevice(object):
         params = {
             "start_time" : start_time.astimezone(pytz.timezone("UTC")).isoformat()[:-9]+"Z", # 2024-02-07T19:32:25.250Z
             "end_time" : end_time.astimezone(pytz.timezone("UTC")).isoformat()[:-9]+"Z", # 2024-02-08T19:32:25.250Z
-            "types": 4, 
+            "types": 4,
             "variant" : 2,
         }
         return self.__parse_events(
             self._connection.make_nest_get_request(
                 self._device_id,
-                NestDoorbellDevice.EVENTS_URI, 
+                NestDoorbellDevice.EVENTS_URI,
                 params=params
             )
         )
