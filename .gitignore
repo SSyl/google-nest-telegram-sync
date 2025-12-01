@@ -181,4 +181,10 @@ sent_events.json
 service-account.json
 *-service-account.json
 sdm_credentials.json
-nest-sdm-project-summary.md.claude/
+
+# Claude Code configuration
+.claude/
+
+# Markdown files except README
+*.md
+!README.md
