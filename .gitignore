@@ -181,6 +181,11 @@ sent_events.json
 service-account.json
 *-service-account.json
 sdm_credentials.json
-nest-sdm-project-summary.md
+
+# Local tooling configuration
 .*/
 !.github/
+
+# Markdown files except README
+*.md
+!README.md
