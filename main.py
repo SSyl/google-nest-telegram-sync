@@ -5,10 +5,13 @@ load_dotenv()  # take environment variables from .env.
 from tools import logger
 from google_auth_wrapper import GoogleConnection
 from telegram_sync import TelegramEventsSync
+from nest_sdm_api import create_sdm_client_from_env
+from pubsub_listener import create_pubsub_listener_from_env
 
 import os
 import datetime
 import asyncio
+import threading
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 
@@ -57,7 +60,35 @@ def main():
     logger.info("Initialized a Telegram Syncer")
     if DRY_RUN:
         logger.warning("DRY RUN MODE ENABLED - Videos will NOT be sent to Telegram!")
-    logger.info(f"Syncing every {REFRESH_INTERVAL_MINUTES} minute(s)")
+
+    # Initialize SDM API client (for event types)
+    logger.info("Initializing Smart Device Management API...")
+    sdm_client = create_sdm_client_from_env()
+    if sdm_client:
+        logger.info("SDM API initialized - real-time events enabled")
+        # List devices to verify connection
+        sdm_devices = sdm_client.list_devices()
+    else:
+        logger.warning("SDM API not configured - using polling mode only")
+
+    # Create Pub/Sub listener for real-time events
+    pubsub_listener = create_pubsub_listener_from_env(tes.handle_realtime_event)
+
+    # Start Pub/Sub listener in background thread
+    if pubsub_listener:
+        logger.info("Starting Pub/Sub listener for real-time events...")
+        pubsub_thread = threading.Thread(
+            target=pubsub_listener.start_listening,
+            daemon=True,
+            name="PubSubListener"
+        )
+        pubsub_thread.start()
+        logger.info("Pub/Sub listener started in background")
+    else:
+        logger.warning("Pub/Sub listener not configured - real-time events disabled")
+
+    # Also keep the scheduler running as a fallback
+    logger.info(f"Starting fallback polling every {REFRESH_INTERVAL_MINUTES} minute(s)")
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -72,11 +103,18 @@ def main():
     )
     scheduler.start()
 
+    logger.info("=" * 60)
+    logger.info("Application started successfully!")
+    logger.info("  - Real-time events: " + ("ENABLED" if pubsub_listener else "DISABLED"))
+    logger.info("  - Fallback polling: ENABLED")
+    logger.info("=" * 60)
+
     try:
         loop.run_forever()
     except (KeyboardInterrupt, SystemExit):
-        pass
+        logger.info("Shutting down...")
     finally:
+        scheduler.shutdown()
         loop.close()
 
 if __name__ == "__main__":
