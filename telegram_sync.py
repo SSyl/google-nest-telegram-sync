@@ -144,18 +144,34 @@ class TelegramEventsSync(object):
 
         Args:
             event_data: Dict containing:
-                - event_id: Unique event ID
+                - event_id: Unique event ID (from Pub/Sub)
                 - timestamp: Event datetime
                 - device_id: Device ID
-                - event_types: List of event types (e.g., ['person', 'motion'])
+                - event_types: List of event types (e.g., ['person', 'motion', 'clippreview'])
                 - raw_data: Raw Pub/Sub data
         """
         device_id = event_data.get('device_id')
         device_display_name = event_data.get('device_display_name', '')
         event_types = event_data.get('event_types', [])
         event_time = event_data.get('timestamp')
+        pubsub_event_id = event_data.get('event_id')  # Pub/Sub event ID for deduplication
 
         logger.info(f"Received real-time event: {event_types} from '{device_display_name}' at {event_time}")
+
+        # Only process events with 'clippreview' - this means the clip is ready
+        # Google sends multiple Pub/Sub messages per event, and clippreview is the final one
+        if 'clippreview' not in event_types:
+            logger.debug(f"Ignoring event without clippreview (event still in progress)")
+            return
+
+        # Check if we've already processed this event using Pub/Sub event ID
+        if pubsub_event_id in self._recent_events:
+            logger.info(f"Event {pubsub_event_id} already processed, skipping")
+            return
+
+        # Mark as processed immediately to prevent race conditions
+        self._recent_events.add(pubsub_event_id)
+        self._save_sent_events()
 
         # Find the matching camera device by name (SDM and unofficial API use different IDs)
         nest_device = None
@@ -183,9 +199,10 @@ class TelegramEventsSync(object):
         # Generate event type display string
         event_type_str = self._format_event_types(event_types)
 
-        # Wait 2 minutes for the event to complete and for Google to encode the video
-        logger.info(f"Waiting 2 minutes for event to complete and encode...")
-        await asyncio.sleep(120)  # 2 minutes
+        # Wait 30 seconds for the clip to be fully available
+        # (clippreview means encoding is done, but give a small buffer)
+        logger.info(f"Waiting 30 seconds for clip to be fully available...")
+        await asyncio.sleep(30)
 
         logger.info(f"Processing event: {event_type_str} from {nest_device.device_name}")
 
@@ -227,11 +244,6 @@ class TelegramEventsSync(object):
                 )
                 logger.info(f"Sent real-time event to Telegram: {video_caption}")
 
-            # Track this event
-            event_id = f"{start_time.isoformat()}->{end_time.isoformat()}|{device_id}"
-            self._recent_events.add(event_id)
-            self._save_sent_events()
-
         except Exception as e:
             logger.error(f"Failed to process real-time event: {e}")
             import traceback
@@ -239,34 +251,65 @@ class TelegramEventsSync(object):
 
     def _format_event_types(self, event_types):
         """
-        Format event types list into a display string
+        Format event types list into a display string with emojis
 
         Args:
-            event_types: List of event type strings (e.g., ['person', 'motion'])
+            event_types: List of event type strings (e.g., ['person', 'package', 'clippreview'])
 
         Returns:
-            Formatted string (e.g., "Person Detected")
+            Formatted string (e.g., "📦🧍 Package, Person Detected")
         """
         if not event_types:
             return "Event"
 
-        # Event type display names
-        type_map = {
-            'person': 'Person Detected',
-            'motion': 'Motion Detected',
-            'sound': 'Sound Detected',
-            'package': 'Package Detected',
-            'animal': 'Animal Detected',
-            'vehicle': 'Vehicle Detected',
-            'chime': 'Doorbell Pressed'
+        # Filter out 'clippreview' - it's not a real event type
+        event_types = [e for e in event_types if e != 'clippreview']
+
+        if not event_types:
+            return "Event"
+
+        # Event type display names and emojis (in priority order)
+        event_info = {
+            'chime': {'emoji': '🔔', 'name': 'Doorbell'},
+            'package': {'emoji': '📦', 'name': 'Package'},
+            'person': {'emoji': '🧍', 'name': 'Person'},
+            'animal': {'emoji': '🦖', 'name': 'Animal'},
+            'vehicle': {'emoji': '🚗', 'name': 'Vehicle'},
+            'motion': {'emoji': '👀', 'name': 'Motion'},
+            'sound': {'emoji': '🔊', 'name': 'Sound'}
         }
 
-        # Get the most specific event type (prefer person over motion, etc.)
-        priority = ['person', 'package', 'animal', 'vehicle', 'chime', 'sound', 'motion']
+        # Priority order for sorting
+        priority_order = ['chime', 'package', 'person', 'animal', 'vehicle', 'motion', 'sound']
 
-        for event_type in priority:
+        # Sort events by priority
+        sorted_events = []
+        for event_type in priority_order:
             if event_type in event_types:
-                return type_map.get(event_type, event_type.title())
+                sorted_events.append(event_type)
 
-        # If no priority match, use the first one
-        return type_map.get(event_types[0], event_types[0].title())
+        # Add any unknown event types at the end
+        for event_type in event_types:
+            if event_type not in sorted_events:
+                sorted_events.append(event_type)
+
+        # Special case: doorbell is always alone and says "Pressed" not "Detected"
+        if 'chime' in sorted_events and len(sorted_events) == 1:
+            return "🔔 Doorbell Pressed"
+
+        # Build emoji string (all emojis together)
+        emojis = ''.join([
+            event_info.get(e, {}).get('emoji', '❓')
+            for e in sorted_events
+        ])
+
+        # Build event names list
+        event_names = [
+            event_info.get(e, {}).get('name', e.title())
+            for e in sorted_events
+        ]
+
+        # Join event names with commas and add "Detected"
+        events_text = ', '.join(event_names) + ' Detected'
+
+        return f"{emojis} {events_text}"

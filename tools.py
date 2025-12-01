@@ -54,4 +54,11 @@ root_logger.addFilter(sensitive_filter)
 for handler in root_logger.handlers:
     handler.addFilter(sensitive_filter)
 
+# Specifically add filter to httpx and telegram loggers
+for logger_name in ['httpx', 'telegram', 'telegram.Bot']:
+    lib_logger = logging.getLogger(logger_name)
+    lib_logger.addFilter(sensitive_filter)
+    for handler in lib_logger.handlers:
+        handler.addFilter(sensitive_filter)
+
 logger = logging.getLogger(__name__)
