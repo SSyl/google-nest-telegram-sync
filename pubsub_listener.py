@@ -96,8 +96,13 @@ class NestEventListener:
             timestamp_str = data.get("timestamp")
             resource_update = data.get("resourceUpdate", {})
 
-            # Get device name
-            device_name = resource_update.get("name", "")
+            # Get device full name (path)
+            device_full_name = resource_update.get("name", "")
+            device_id = device_full_name.split("/")[-1] if "/" in device_full_name else device_full_name
+
+            # Try to get custom device name from traits
+            traits = resource_update.get("traits", {})
+            device_display_name = traits.get("sdm.devices.traits.Info", {}).get("customName", "")
 
             # Get events
             events = resource_update.get("events", {})
@@ -119,8 +124,9 @@ class NestEventListener:
             return {
                 "event_id": event_id,
                 "timestamp": event_time,
-                "device_name": device_name,
-                "device_id": device_name.split("/")[-1] if "/" in device_name else device_name,
+                "device_full_name": device_full_name,
+                "device_id": device_id,
+                "device_display_name": device_display_name,
                 "event_types": event_types,
                 "raw_data": data
             }

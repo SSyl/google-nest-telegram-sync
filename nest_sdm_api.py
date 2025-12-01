@@ -102,7 +102,8 @@ class SDMClient:
             for device in devices:
                 device_name = device.get("name", "Unknown")
                 device_type = device.get("type", "Unknown")
-                logger.debug(f"  - {device_name} ({device_type})")
+                display_name = device.get("traits", {}).get("sdm.devices.traits.Info", {}).get("customName", "No Name")
+                logger.debug(f"  - {device_name} ({device_type}) - Display name: {display_name}")
 
             return devices
 

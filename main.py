@@ -9,10 +9,8 @@ from nest_sdm_api import create_sdm_client_from_env
 from pubsub_listener import create_pubsub_listener_from_env
 
 import os
-import datetime
-import asyncio
 import threading
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import time
 
 
 GOOGLE_MASTER_TOKEN = os.getenv("GOOGLE_MASTER_TOKEN")
@@ -25,13 +23,6 @@ DRY_RUN = os.getenv("DRY_RUN", "false").lower() in ("true", "1")
 
 TIMEZONE = os.getenv("TIMEZONE")
 TIME_FORMAT = os.getenv("TIME_FORMAT")
-
-# Get refresh interval from env, default to 2 minutes
-try:
-    REFRESH_INTERVAL_MINUTES = int(os.getenv("REFRESH_INTERVAL_MINUTES", "2"))
-except ValueError:
-    logger.warning("Invalid REFRESH_INTERVAL_MINUTES value, using default of 2 minutes")
-    REFRESH_INTERVAL_MINUTES = 2
 
 assert GOOGLE_MASTER_TOKEN and GOOGLE_USERNAME and TELEGRAM_CHANNEL_ID and TELEGRAM_BOT_TOKEN
 
@@ -85,37 +76,21 @@ def main():
         pubsub_thread.start()
         logger.info("Pub/Sub listener started in background")
     else:
-        logger.warning("Pub/Sub listener not configured - real-time events disabled")
-
-    # Also keep the scheduler running as a fallback
-    logger.info(f"Starting fallback polling every {REFRESH_INTERVAL_MINUTES} minute(s)")
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    # Schedule the job to run every x minutes
-    scheduler = AsyncIOScheduler(event_loop=loop)
-    scheduler.add_job(
-        tes.sync,
-        'interval',
-        minutes=REFRESH_INTERVAL_MINUTES,
-        next_run_time=datetime.datetime.now() + datetime.timedelta(seconds=10)
-    )
-    scheduler.start()
+        logger.error("Pub/Sub listener not configured - application cannot run without it!")
+        return
 
     logger.info("=" * 60)
     logger.info("Application started successfully!")
-    logger.info("  - Real-time events: " + ("ENABLED" if pubsub_listener else "DISABLED"))
-    logger.info("  - Fallback polling: ENABLED")
+    logger.info("  - Real-time events via Pub/Sub: ENABLED")
+    logger.info("  - Waiting for events...")
     logger.info("=" * 60)
 
     try:
-        loop.run_forever()
+        # Keep the main thread alive
+        while True:
+            time.sleep(1)
     except (KeyboardInterrupt, SystemExit):
         logger.info("Shutting down...")
-    finally:
-        scheduler.shutdown()
-        loop.close()
 
 if __name__ == "__main__":
     main()

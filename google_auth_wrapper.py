@@ -89,8 +89,12 @@ class GoogleConnection(object):
 
         # This one will list all your home devices
         # One of them would be your Nest Camera, let's find it
-        return [
-            NestDoorbellDevice(self, device.device_info.agent_info.unique_id, device.device_name)
-            for device in homegraph_response.home.devices
-            if "action.devices.traits.CameraStream" in device.traits and "Nest" in device.hardware.model
-        ]
+        cameras = []
+        for device in homegraph_response.home.devices:
+            if "action.devices.traits.CameraStream" in device.traits and "Nest" in device.hardware.model:
+                device_id = device.device_info.agent_info.unique_id
+                device_name = device.device_name
+                logger.debug(f"Unofficial API camera: ID={device_id}, Name={device_name}")
+                cameras.append(NestDoorbellDevice(self, device_id, device_name))
+
+        return cameras

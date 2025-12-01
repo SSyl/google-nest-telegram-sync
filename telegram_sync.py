@@ -8,6 +8,7 @@ import datetime
 import os
 import locale
 import json
+import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -136,61 +137,6 @@ class TelegramEventsSync(object):
         """Get current time in UTC for API calls"""
         return pytz.UTC.localize(datetime.datetime.utcnow())
 
-    async def sync_single_nest_camera(self, nest_device : NestDoorbellDevice):
-
-        logger.info(f"Syncing: {nest_device.device_id}")
-        all_recent_camera_events : list[CameraEvent] = nest_device.get_events(
-            end_time = self._get_current_time_utc(),  # Always use UTC for API calls
-            duration_minutes=3 * 60 # This is the maxmimum time Google is saving my videos
-        )
-
-        logger.info(f"[{nest_device.device_id}] Received {len(all_recent_camera_events)} camera events")
-
-        skipped = 0
-        for camera_event_obj in all_recent_camera_events:
-            # Always check if already sent in THIS run
-            if camera_event_obj.event_id in self._recent_events:
-                logger.debug(f"CameraEvent ({camera_event_obj}) already sent, skipping..")
-                skipped += 1
-                continue
-
-            logger.debug(f"Downloading camera event: {camera_event_obj}")
-            video_data = nest_device.download_camera_event(camera_event_obj)
-            video_io = BytesIO(video_data)
-
-            # Convert event time to display timezone for the caption
-            event_local_time = camera_event_obj.start_time.astimezone(self._display_timezone)
-            time_str = event_local_time.strftime(self._time_format)
-
-            video_caption = f"{nest_device.device_name} [{time_str}]"
-
-            video_media = InputMediaVideo(
-                media=video_io,
-                caption=video_caption
-            )
-
-            if self._dry_run:
-                logger.info(f"[DRY RUN] Would send: {video_caption} ({len(video_data)} bytes)")
-            else:
-                await self._telegram_bot.send_media_group(
-                    chat_id=self._telegram_channel_id,
-                    media=[video_media],
-                    disable_notification=True,
-                )
-                logger.debug("Sent clip successfully")
-
-            self._recent_events.add(camera_event_obj.event_id)
-
-        downloaded_and_sent = len(all_recent_camera_events) - skipped
-        logger.info(f"[{nest_device.device_id}] Downloaded and sent: {downloaded_and_sent}, skipped (already sent): {skipped}")
-        
-        # Save after processing each camera
-        self._save_sent_events()
-
-    async def sync(self):
-        logger.info("Syncing all camera devices")
-        for nest_device in self._nest_camera_devices:
-            await self.sync_single_nest_camera(nest_device)
 
     async def handle_realtime_event(self, event_data):
         """
@@ -205,37 +151,49 @@ class TelegramEventsSync(object):
                 - raw_data: Raw Pub/Sub data
         """
         device_id = event_data.get('device_id')
+        device_display_name = event_data.get('device_display_name', '')
         event_types = event_data.get('event_types', [])
         event_time = event_data.get('timestamp')
 
-        logger.info(f"Processing real-time event: {event_types} from {device_id} at {event_time}")
+        logger.info(f"Received real-time event: {event_types} from '{device_display_name}' at {event_time}")
 
-        # Find the matching camera device
+        # Find the matching camera device by name (SDM and unofficial API use different IDs)
         nest_device = None
+        logger.debug(f"Looking for device with display name: '{device_display_name}'")
+        logger.debug(f"Available cameras: {[(device.device_name, device.device_id) for device in self._nest_camera_devices]}")
+
         for device in self._nest_camera_devices:
-            if device.device_id == device_id or device_id in device.device_name:
+            # Match by device name (case-insensitive, partial match)
+            device_name_lower = device.device_name.lower()
+            display_name_lower = device_display_name.lower()
+
+            # Check if names match exactly or if one contains the other
+            if (device_name_lower == display_name_lower or
+                device_name_lower in display_name_lower or
+                display_name_lower in device_name_lower):
+                logger.debug(f"Matched device: '{device.device_name}' with SDM name '{device_display_name}' ({device.device_id})")
                 nest_device = device
                 break
 
         if not nest_device:
-            logger.warning(f"Device {device_id} not found in configured cameras")
+            logger.warning(f"Device '{device_display_name}' not found in configured cameras")
+            logger.warning(f"Available device names: {[device.device_name for device in self._nest_camera_devices]}")
             return
 
         # Generate event type display string
         event_type_str = self._format_event_types(event_types)
 
-        # Download the video clip for this event
-        # The event timestamp is when it was detected, but we need to download
-        # a clip that includes a few seconds before and after
-        try:
-            # Create a time range around the event (e.g., 5 seconds before to 10 seconds after)
-            start_time = event_time - datetime.timedelta(seconds=5)
-            end_time = event_time + datetime.timedelta(seconds=10)
+        # Wait 2 minutes for the event to complete and for Google to encode the video
+        logger.info(f"Waiting 2 minutes for event to complete and encode...")
+        await asyncio.sleep(120)  # 2 minutes
 
-            # Ensure we cap at 1 minute max
-            duration = (end_time - start_time).total_seconds()
-            if duration > 60:
-                end_time = start_time + datetime.timedelta(seconds=60)
+        logger.info(f"Processing event: {event_type_str} from {nest_device.device_name}")
+
+        # Download the video clip for this event
+        # Download a 1-minute clip: 5 seconds before event start to 55 seconds after (60 seconds total)
+        try:
+            start_time = event_time - datetime.timedelta(seconds=5)
+            end_time = event_time + datetime.timedelta(seconds=55)
 
             # Download the video using the unofficial API
             logger.debug(f"Downloading video clip from {start_time} to {end_time}")
