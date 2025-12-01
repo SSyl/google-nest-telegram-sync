@@ -19,7 +19,10 @@ services:
       - SDM_SERVICE_ACCOUNT_FILE=${SDM_SERVICE_ACCOUNT_FILE:-service-account.json}
       - SDM_PUBSUB_TOPIC=${SDM_PUBSUB_TOPIC}
     volumes:
-      - ./sent_events.json:/app/sent_events.json
+      - sent-events:/app  # Named volume for persistence
       - ./service-account.json:/app/service-account.json:ro
     env_file:
       - .env
+
+volumes:
+  sent-events:  # Named volume - Docker manages this automatically
