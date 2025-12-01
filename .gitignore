@@ -189,3 +189,4 @@ sdm_credentials.json
 # Markdown files except README
 *.md
 !README.md
+!dockerhub-overview.md
