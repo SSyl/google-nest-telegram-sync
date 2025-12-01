@@ -176,3 +176,9 @@ desktop.ini
 
 # Local event logging file
 sent_events.json
+
+# Google Cloud credentials
+service-account.json
+*-service-account.json
+sdm_credentials.json
+nest-sdm-project-summary.md

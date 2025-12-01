@@ -11,7 +11,15 @@ services:
       - TIMEZONE=${TIMEZONE:-UTC}
       - TIME_FORMAT=${TIME_FORMAT:-24h}
       - FORCE_RESEND_ALL=${FORCE_RESEND_ALL:-false}
+      # SDM API (Official Google Nest API for event types)
+      - SDM_PROJECT_ID=${SDM_PROJECT_ID}
+      - SDM_CLIENT_ID=${SDM_CLIENT_ID}
+      - SDM_CLIENT_SECRET=${SDM_CLIENT_SECRET}
+      - SDM_REFRESH_TOKEN=${SDM_REFRESH_TOKEN}
+      - SDM_SERVICE_ACCOUNT_FILE=${SDM_SERVICE_ACCOUNT_FILE:-service-account.json}
+      - SDM_PUBSUB_TOPIC=${SDM_PUBSUB_TOPIC}
     volumes:
       - ./sent_events.json:/app/sent_events.json
+      - ./service-account.json:/app/service-account.json:ro
     env_file:
       - .env

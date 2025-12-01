@@ -191,3 +191,124 @@ class TelegramEventsSync(object):
         logger.info("Syncing all camera devices")
         for nest_device in self._nest_camera_devices:
             await self.sync_single_nest_camera(nest_device)
+
+    async def handle_realtime_event(self, event_data):
+        """
+        Handle real-time event from Pub/Sub with event type information
+
+        Args:
+            event_data: Dict containing:
+                - event_id: Unique event ID
+                - timestamp: Event datetime
+                - device_id: Device ID
+                - event_types: List of event types (e.g., ['person', 'motion'])
+                - raw_data: Raw Pub/Sub data
+        """
+        device_id = event_data.get('device_id')
+        event_types = event_data.get('event_types', [])
+        event_time = event_data.get('timestamp')
+
+        logger.info(f"Processing real-time event: {event_types} from {device_id} at {event_time}")
+
+        # Find the matching camera device
+        nest_device = None
+        for device in self._nest_camera_devices:
+            if device.device_id == device_id or device_id in device.device_name:
+                nest_device = device
+                break
+
+        if not nest_device:
+            logger.warning(f"Device {device_id} not found in configured cameras")
+            return
+
+        # Generate event type display string
+        event_type_str = self._format_event_types(event_types)
+
+        # Download the video clip for this event
+        # The event timestamp is when it was detected, but we need to download
+        # a clip that includes a few seconds before and after
+        try:
+            # Create a time range around the event (e.g., 5 seconds before to 10 seconds after)
+            start_time = event_time - datetime.timedelta(seconds=5)
+            end_time = event_time + datetime.timedelta(seconds=10)
+
+            # Ensure we cap at 1 minute max
+            duration = (end_time - start_time).total_seconds()
+            if duration > 60:
+                end_time = start_time + datetime.timedelta(seconds=60)
+
+            # Download the video using the unofficial API
+            logger.debug(f"Downloading video clip from {start_time} to {end_time}")
+            video_data = nest_device._NestDoorbellDevice__download_event_by_time(start_time, end_time)
+
+            if not video_data:
+                logger.warning(f"No video data returned for event {event_data.get('event_id')}")
+                return
+
+            # Convert event time to display timezone
+            event_local_time = event_time.astimezone(self._display_timezone)
+            time_str = event_local_time.strftime(self._time_format)
+
+            # Format caption with event type
+            video_caption = f"{event_type_str} - {nest_device.device_name} [{time_str}]"
+
+            # Send to Telegram
+            if self._dry_run:
+                logger.info(f"[DRY RUN] Would send: {video_caption} ({len(video_data)} bytes)")
+            else:
+                video_io = BytesIO(video_data)
+                video_media = InputMediaVideo(
+                    media=video_io,
+                    caption=video_caption
+                )
+
+                await self._telegram_bot.send_media_group(
+                    chat_id=self._telegram_channel_id,
+                    media=[video_media],
+                    disable_notification=True,
+                )
+                logger.info(f"Sent real-time event to Telegram: {video_caption}")
+
+            # Track this event
+            event_id = f"{start_time.isoformat()}->{end_time.isoformat()}|{device_id}"
+            self._recent_events.add(event_id)
+            self._save_sent_events()
+
+        except Exception as e:
+            logger.error(f"Failed to process real-time event: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+
+    def _format_event_types(self, event_types):
+        """
+        Format event types list into a display string
+
+        Args:
+            event_types: List of event type strings (e.g., ['person', 'motion'])
+
+        Returns:
+            Formatted string (e.g., "Person Detected")
+        """
+        if not event_types:
+            return "Event"
+
+        # Event type display names
+        type_map = {
+            'person': 'Person Detected',
+            'motion': 'Motion Detected',
+            'sound': 'Sound Detected',
+            'package': 'Package Detected',
+            'animal': 'Animal Detected',
+            'vehicle': 'Vehicle Detected',
+            'chime': 'Doorbell Pressed'
+        }
+
+        # Get the most specific event type (prefer person over motion, etc.)
+        priority = ['person', 'package', 'animal', 'vehicle', 'chime', 'sound', 'motion']
+
+        for event_type in priority:
+            if event_type in event_types:
+                return type_map.get(event_type, event_type.title())
+
+        # If no priority match, use the first one
+        return type_map.get(event_types[0], event_types[0].title())
