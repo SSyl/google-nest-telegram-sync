@@ -176,3 +176,13 @@ desktop.ini
 
 # Local event logging file
 sent_events.json
+
+# Claude Code configuration
+.claude/
+
+# Markdown files (except README)
+*.md
+!README.md
+
+# Google service account credentials
+service-account.json
