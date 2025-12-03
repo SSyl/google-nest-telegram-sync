@@ -186,3 +186,4 @@ sent_events.json
 
 # Google service account credentials
 service-account.json
+sdm_credentials.json
