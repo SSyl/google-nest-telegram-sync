@@ -11,6 +11,7 @@ import datetime
 import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+__version__ = "1.0"
 
 GOOGLE_MASTER_TOKEN = os.getenv("GOOGLE_MASTER_TOKEN")
 GOOGLE_USERNAME = os.getenv("GOOGLE_USERNAME")
@@ -35,7 +36,8 @@ assert GOOGLE_MASTER_TOKEN and GOOGLE_USERNAME and TELEGRAM_CHANNEL_ID and TELEG
 
 def main():
 
-    logger.info("Welcome to the Google Nest Doorbell <-> Telegram Syncer")
+    logger.info("Welcome to the Google Nest Doorbell <-> Telegram Sync")
+    logger.info(f"Version: {__version__}")
 
     logger.info("Initializing the Google connection using the master_token")
     google_connection = GoogleConnection(GOOGLE_MASTER_TOKEN, GOOGLE_USERNAME)
@@ -54,7 +56,7 @@ def main():
         nest_camera_devices=nest_camera_devices
     )
 
-    logger.info("Initialized a Telegram Syncer")
+    logger.info("Initialized a Telegram Sync")
     if DRY_RUN:
         logger.warning("DRY RUN MODE ENABLED - Videos will NOT be sent to Telegram!")
     logger.info(f"Syncing every {REFRESH_INTERVAL_MINUTES} minute(s)")

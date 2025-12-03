@@ -176,3 +176,14 @@ desktop.ini
 
 # Local event logging file
 sent_events.json
+
+# Local tooling configuration
+.*/
+!.github/
+
+# Markdown files (except README)
+*.md
+!README.md
+
+# Google service account credentials
+service-account.json
