@@ -49,11 +49,12 @@ def main():
     tes = TelegramEventsSync(
         telegram_bot_token=TELEGRAM_BOT_TOKEN,
         telegram_channel_id=TELEGRAM_CHANNEL_ID,
+        nest_camera_devices=nest_camera_devices,
+        google_connection=google_connection,
         timezone=TIMEZONE,
         time_format=TIME_FORMAT,
         force_resend_all=FORCE_RESEND_ALL,
-        dry_run=DRY_RUN,
-        nest_camera_devices=nest_camera_devices
+        dry_run=DRY_RUN
     )
 
     logger.info("Initialized a Telegram Sync")
