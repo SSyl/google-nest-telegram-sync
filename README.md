@@ -4,7 +4,7 @@ This is a fork of [TamirMa/google-nest-telegram-sync](https://github.com/TamirMa
 
 ## Credits
 
-Original project by [Tamir Mayer](https://github.com/TamirMa). Read their story beind the project [here](https://medium.com/@tamirmayer/google-nest-camera-internal-api-fdf9dc3ce167).
+Original project by [Tamir Mayer](https://github.com/TamirMa). Read their story behind the project [here](https://medium.com/@tamirmayer/google-nest-camera-internal-api-fdf9dc3ce167).
 
 Additional thanks to:
 - [glocaltokens](https://github.com/leikoilja/glocaltokens) - Google authentication
@@ -12,9 +12,15 @@ Additional thanks to:
 
 ## Overview
 
-Automatically sync video clips from your Google Nest cameras to a Telegram channel. Runs on a schedule, tracks sent videos to avoid duplicates, and supports flexible timezone and formatting options.
+Automatically sync video clips from your Google Nest cameras to a Telegram channel. Uses polling to capture **ALL event types** (person, package, animal, vehicle, motion, sound) without requiring Google's Smart Device Management API.
 
 **For personal use only. Use at your own risk.**
+
+### Why Polling Instead of Google's Official API?
+
+Google's Smart Device Management (SDM) API only exposes person/motion/sound events. It **completely misses package, animal, and vehicle detection**. This project uses Google's unofficial Nest API with polling to ensure you get every event, even though we can't determine the specific event type.
+
+**Trade-off:** Video captions show device name and timestamp only (e.g., "Front Door [11:40:50 PM]"), without event type labels.
 
 ## Key Improvements Over Original
 
@@ -58,27 +64,63 @@ FORCE_RESEND_ALL=false          # Set to true for testing/debugging
 python3 main.py
 ```
 
-### Option 2: Docker
+### Option 2: Docker (Recommended)
 
-1. Build and run with Docker:
+**Use Docker Compose:**
+
+Create `docker-compose.yaml`:
+```yaml
+services:
+  nest-sync:
+    image: ssyl/nest-telegram-sync:latest
+    container_name: nest-telegram-sync
+    restart: unless-stopped
+    environment:
+      - GOOGLE_MASTER_TOKEN=${GOOGLE_MASTER_TOKEN}
+      - GOOGLE_USERNAME=${GOOGLE_USERNAME}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHANNEL_ID=${TELEGRAM_CHANNEL_ID}
+      - TIMEZONE=${TIMEZONE:-UTC}
+      - TIME_FORMAT=${TIME_FORMAT:-24h}
+      - REFRESH_INTERVAL_MINUTES=${REFRESH_INTERVAL_MINUTES:-2}
+      - FORCE_RESEND_ALL=${FORCE_RESEND_ALL:-false}
+      - DRY_RUN=${DRY_RUN:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - VERBOSE=${VERBOSE:-false}
+    volumes:
+      - sent-events:/app
+    env_file:
+      - .env
+
+volumes:
+  sent-events:
+```
+
+Run:
+```bash
+docker compose up -d
+docker compose logs -f nest-sync
+```
+
+**Or use Docker Hub image directly:**
+```bash
+docker run -d \
+  --name nest-telegram-sync \
+  --env-file .env \
+  -v nest-events:/app \
+  --restart unless-stopped \
+  ssyl/nest-telegram-sync:latest
+```
+
+**Or build locally:**
 ```bash
 docker build -t nest-telegram-sync .
 docker run -d \
   --name nest-telegram-sync \
   --env-file .env \
-  -v $(pwd)/sent_events.json:/app/sent_events.json \
+  -v nest-events:/app \
   --restart unless-stopped \
   nest-telegram-sync
-```
-
-2. Or use Docker Compose:
-```bash
-docker compose up -d
-```
-
-View logs:
-```bash
-docker compose logs -f nest-sync
 ```
 
 ## Configuration
@@ -87,14 +129,17 @@ docker compose logs -f nest-sync
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `REFRESH_INTERVAL_MINUTES` | No | `2` | How often to check for new videos (in minutes) |
-| `GOOGLE_USERNAME` | ✅ Yes | - | Your Google account email |
 | `GOOGLE_MASTER_TOKEN` | ✅ Yes | - | Your Google master token |
+| `GOOGLE_USERNAME` | ✅ Yes | - | Your Google account email |
 | `TELEGRAM_BOT_TOKEN` | ✅ Yes | - | Your Telegram bot token |
 | `TELEGRAM_CHANNEL_ID` | ✅ Yes | - | Your Telegram channel ID |
+| `REFRESH_INTERVAL_MINUTES` | No | `2` | How often to check for new videos (in minutes) |
 | `TIMEZONE` | No | Auto-detected | Timezone for timestamps (e.g., `US/Eastern`, `Europe/London`) |
 | `TIME_FORMAT` | No | System locale | `24h`, `12h`, or custom strftime format |
-| `FORCE_RESEND_ALL` | No | `false` | Set to `true` to ignore sent history (for testing) |
+| `DRY_RUN` | No | `false` | Download videos but don't send to Telegram (testing) |
+| `LOG_LEVEL` | No | `INFO` | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `VERBOSE` | No | `false` | Extra detailed logging (XML dumps, API responses) |
+| `FORCE_RESEND_ALL` | No | `false` | Ignore sent history (for testing) |
 
 ### Time Format Examples
 
@@ -122,8 +167,27 @@ See `requirements.txt` for all Python dependencies.
 
 ## Troubleshooting
 
+**No videos arriving?**
+```bash
+docker compose logs -f nest-sync
+```
+Look for:
+- `Found X Camera Device(s)` - Confirms authentication works
+- `Received X camera events` - Shows events were found
+- `Downloaded and sent: X` - Videos successfully sent
+
 **Wrong timestamps?**
 Set `TIMEZONE` explicitly in your `.env` file (e.g., `TIMEZONE=America/New_York`).
+
+**Want to test without sending to Telegram?**
+Set in `.env`:
+```env
+DRY_RUN=true
+LOG_LEVEL=DEBUG
+```
+
+**Container keeps restarting?**
+Ensure all 4 required environment variables are set in `.env`.
 
 ## License & Disclaimer
 

@@ -181,9 +181,10 @@ sent_events.json
 .*/
 !.github/
 
-# Markdown files (except README)
+# Markdown files (except README and Docker Hub overview)
 *.md
 !README.md
+!dockerhub-overview.md
 
 # Google service account credentials
 service-account.json
