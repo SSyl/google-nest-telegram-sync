@@ -180,9 +180,10 @@ sent_events.json
 # Claude Code configuration
 .claude/
 
-# Markdown files (except README)
+# Markdown files (except README and Docker Hub overview)
 *.md
 !README.md
+!dockerhub-overview.md
 
 # Google service account credentials
 service-account.json
