@@ -1,6 +1,7 @@
 from nest_api import NestDoorbellDevice
 from tools import logger
 from models import CameraEvent
+from google_home_events import GoogleHomeEvents
 
 from io import BytesIO
 import pytz
@@ -25,12 +26,15 @@ class TelegramEventsSync(object):
 
     SENT_EVENTS_FILE = 'sent_events.json'
 
-    def __init__(self, telegram_bot_token, telegram_channel_id, nest_camera_devices, timezone=None, time_format=None, force_resend_all=False, dry_run=False) -> None:
+    def __init__(self, telegram_bot_token, telegram_channel_id, nest_camera_devices, google_connection, timezone=None, time_format=None, force_resend_all=False, dry_run=False) -> None:
         self._telegram_bot = Bot(token=telegram_bot_token)
         self._telegram_channel_id = telegram_channel_id
         self._nest_camera_devices = nest_camera_devices
         self._force_resend_all = force_resend_all
         self._dry_run = dry_run
+
+        # Initialize Google Home API for event types (optional - graceful degradation)
+        self._google_home_events = GoogleHomeEvents(google_connection)
         
         # Setup timezone for display purposes
         if timezone:
@@ -139,12 +143,29 @@ class TelegramEventsSync(object):
     async def sync_single_nest_camera(self, nest_device : NestDoorbellDevice):
 
         logger.info(f"Syncing: {nest_device.device_id}")
+        end_time_utc = self._get_current_time_utc()
         all_recent_camera_events : list[CameraEvent] = nest_device.get_events(
-            end_time = self._get_current_time_utc(),  # Always use UTC for API calls
+            end_time = end_time_utc,  # Always use UTC for API calls
             duration_minutes=3 * 60 # This is the maxmimum time Google is saving my videos
         )
 
         logger.info(f"[{nest_device.device_id}] Received {len(all_recent_camera_events)} camera events")
+
+        # Fetch event types from Google Home API (if device ID available)
+        event_types = {}
+        if nest_device.google_home_device_id:
+            try:
+                start_time_ms = int((end_time_utc.timestamp() - (3 * 60 * 60)) * 1000)
+                end_time_ms = int(end_time_utc.timestamp() * 1000)
+                event_types = self._google_home_events.get_event_types(
+                    nest_device.google_home_device_id,
+                    start_time_ms,
+                    end_time_ms
+                )
+                if event_types:
+                    logger.info(f"[{nest_device.device_id}] Fetched {len(event_types)} event type descriptions from Google Home")
+            except Exception as e:
+                logger.warning(f"[{nest_device.device_id}] Could not fetch event types: {e}")
 
         skipped = 0
         for camera_event_obj in all_recent_camera_events:
@@ -162,7 +183,46 @@ class TelegramEventsSync(object):
             event_local_time = camera_event_obj.start_time.astimezone(self._display_timezone)
             time_str = event_local_time.strftime(self._time_format)
 
-            video_caption = f"{nest_device.device_name} [{time_str}]"
+            # Try to find event type from Google Home API
+            event_timestamp_ms = int(camera_event_obj.start_time.timestamp() * 1000)
+            event_timestamp_str = str(event_timestamp_ms)
+            event_type = event_types.get(event_timestamp_str)
+            matched_timestamp = None
+
+            # If no exact match, try fuzzy matching within ±10 seconds
+            if not event_type and event_types:
+                logger.debug(f"No exact match for timestamp: {event_timestamp_str}")
+                logger.debug(f"Available timestamps: {list(event_types.keys())[:5]}")
+
+                # Tolerance: ±10 seconds (10000 milliseconds)
+                TOLERANCE_MS = 10000
+                closest_match = None
+                closest_distance = float('inf')
+
+                for available_ts_str in event_types.keys():
+                    available_ts = int(available_ts_str)
+                    distance = abs(event_timestamp_ms - available_ts)
+
+                    if distance <= TOLERANCE_MS and distance < closest_distance:
+                        closest_distance = distance
+                        closest_match = available_ts_str
+
+                if closest_match:
+                    event_type = event_types[closest_match]
+                    matched_timestamp = closest_match
+                    logger.info(f"Fuzzy matched event type '{event_type}' (offset: {closest_distance}ms)")
+
+            # Build caption with event type if available
+            if event_type:
+                video_caption = f"{event_type} - {nest_device.device_name} [{time_str}]"
+                if matched_timestamp:
+                    logger.info(f"Using fuzzy-matched event type: {event_type}")
+                else:
+                    logger.info(f"Using exact-matched event type: {event_type}")
+            else:
+                video_caption = f"{nest_device.device_name} [{time_str}]"
+                if event_types:
+                    logger.warning(f"No event type match found within {TOLERANCE_MS}ms tolerance")
 
             video_media = InputMediaVideo(
                 media=video_io,

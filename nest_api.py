@@ -12,10 +12,11 @@ class NestDoorbellDevice(object):
     EVENTS_URI = NEST_API_DOMAIN + "/dashmanifest/namespace/nest-phoenix-prod/device/{device_id}"
     DOWNLOAD_VIDEO_URI = NEST_API_DOMAIN + "/mp4clip/namespace/nest-phoenix-prod/device/{device_id}"
 
-    def __init__(self, google_auth_connection, device_id, device_name):
-        self._connection = google_auth_connection
+    def __init__(self, google_connection, device_id, device_name, google_home_device_id=None):
+        self._connection = google_connection
         self._device_id = device_id
         self._device_name = device_name
+        self._google_home_device_id = google_home_device_id  # For fetching event types
 
     def __parse_events(self, events_xml):
         from tools import VERBOSE
@@ -38,6 +39,19 @@ class NestDoorbellDevice(object):
                 for child in period.iter():
                     if child.attrib:
                         logger.debug(f"  Child {child.tag}: {child.attrib}")
+
+            # Extract period ID from BaseURL if available (for debugging only - not used for matching)
+            if VERBOSE:
+                period_id = None
+                base_url = period.find(".//{urn:mpeg:dash:schema:mpd:2011}BaseURL")
+                if base_url is not None and base_url.text:
+                    # Extract UUID from URL like: .../periods/64d4934c-898e-454e-b343-878e49b53b61/...
+                    import re
+                    match = re.search(r'/periods/([a-f0-9-]+)/', base_url.text)
+                    if match:
+                        period_id = match.group(1)
+                        logger.debug(f"Nest API period_id: {period_id} (not used for matching)")
+
             events.append(CameraEvent.from_attrib(period.attrib, self))
         return events
 
@@ -59,6 +73,10 @@ class NestDoorbellDevice(object):
     @property
     def device_name(self):
         return self._device_name
+
+    @property
+    def google_home_device_id(self):
+        return self._google_home_device_id
 
     def get_events(self, end_time: datetime.datetime, duration_minutes: int):
         start_time = end_time - datetime.timedelta(minutes=duration_minutes)
