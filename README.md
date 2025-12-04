@@ -1,3 +1,6 @@
+> [!WARNING]
+> I abandoned trying to use the official SDM as it does not support video downloading and it only detects humans and motions. Package delivery, vehicles, animals all don't get detected.
+
 # Google Nest Camera → Telegram Sync
 
 Automatically receive real-time video clips from your Google Nest cameras in a Telegram channel whenever motion, people, packages, or other events are detected.
@@ -12,7 +15,7 @@ Automatically receive real-time video clips from your Google Nest cameras in a T
 - 🌍 **Timezone support** with flexible time formatting
 - 🐳 **Docker-first** deployment with volume persistence
 - ⚡ **Fast delivery** - Videos sent ~30 seconds after event occurs
-- 🎯 **Multiple event detection** - Shows all detected events in one message
+- 🎯 **Multiple event detection** - Shows all detected events in one message -- UPDATE: THIS DOESN'T WORK
 
 ## Credits
 
