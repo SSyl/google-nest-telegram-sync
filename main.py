@@ -20,7 +20,7 @@ import datetime
 import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-__version__ = "1.0"
+__version__ = "1.1.2"
 
 GOOGLE_MASTER_TOKEN = os.getenv("GOOGLE_MASTER_TOKEN")
 GOOGLE_USERNAME = os.getenv("GOOGLE_USERNAME")

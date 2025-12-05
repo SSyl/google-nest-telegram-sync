@@ -20,8 +20,8 @@ class SensitiveDataFilter(logging.Filter):
     Logging filter that masks sensitive credentials in log output.
 
     Automatically detects and masks:
-    - Telegram bot tokens (shows first 10 digits only)
-    - Google master tokens (shows first 6 chars of token)
+    - Telegram bot tokens (shows first 10 digits)
+    - Google master tokens (shows first 6 chars)
     - OAuth access tokens (shows first 6 chars)
 
     Uses regex patterns to find and replace sensitive strings while preserving
@@ -31,10 +31,10 @@ class SensitiveDataFilter(logging.Filter):
     def __init__(self):
         super().__init__()
         self.patterns = [
-            (re.compile(r'(\d{9,10}):([A-Za-z0-9_-]{35})'), r'\1:***MASKED***'),
-            (re.compile(r'(/bot)(\d{9,10}):([A-Za-z0-9_-]{35})'), r'\1\2:***MASKED***'),
-            (re.compile(r'(aas_et/[A-Za-z0-9_-]{6})[A-Za-z0-9_/+=\-]{50,}'), r'\1[gtoken-masked]'),
-            (re.compile(r'([ya]\w{0,3}\.[A-Za-z0-9_-]{6})[A-Za-z0-9_\-\.]{50,}'), r'\1[access-token-masked]'),
+            (re.compile(r'(\d{9,10}):([A-Za-z0-9_-]{25,})'), r'\1:[telegram-bot-token-masked]'),
+            (re.compile(r'(/bot)(\d{9,10}):([A-Za-z0-9_-]{25,})'), r'\1\2:[telegram-bot-token-masked]'),
+            (re.compile(r'(aas_et/[A-Za-z0-9_-]{6})[A-Za-z0-9_/+=\-]{50,}'), r'\1[google-master-token-masked]'),
+            (re.compile(r'([ya]\w{0,3}\.[A-Za-z0-9_-]{6})[A-Za-z0-9_\-\.]{50,}'), r'\1[oauth-access-token-masked]'),
         ]
 
     def filter(self, record):
@@ -54,7 +54,11 @@ class SensitiveDataFilter(logging.Filter):
         return True
 
 
-logging.basicConfig(level=numeric_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=numeric_level,
+    format='[%(asctime)s] %(levelname)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 sensitive_filter = SensitiveDataFilter()
 root_logger = logging.getLogger()
