@@ -1,6 +1,5 @@
-from nest_api import NestDoorbellDevice
+from nest_device import NestDevice
 from tools import logger
-from models import CameraEvent
 from google_home_events import GoogleHomeEvents
 
 from io import BytesIO
@@ -140,37 +139,35 @@ class TelegramEventsSync(object):
         """Get current time in UTC for API calls"""
         return pytz.UTC.localize(datetime.datetime.utcnow())
 
-    async def sync_single_nest_camera(self, nest_device : NestDoorbellDevice):
+    async def sync_single_nest_camera(self, nest_device: NestDevice):
 
         logger.info(f"Syncing: {nest_device.device_id}")
         end_time_utc = self._get_current_time_utc()
 
-        # Fetch events from Google Home API (if device ID available)
-        google_home_events = []
-        if nest_device.google_home_device_id:
-            try:
-                start_time_ms = int((end_time_utc.timestamp() - (3 * 60 * 60)) * 1000)
-                end_time_ms = int(end_time_utc.timestamp() * 1000)
-                google_home_events = self._google_home_events.get_events(
-                    nest_device.google_home_device_id,
-                    start_time_ms,
-                    end_time_ms
-                )
-                if google_home_events:
-                    logger.info(f"[{nest_device.device_id}] Fetched {len(google_home_events)} events from Google Home")
-            except Exception as e:
-                logger.warning(f"[{nest_device.device_id}] Could not fetch events from Google Home API: {e}")
+        # Fetch events from Google Home API
+        if not nest_device.google_home_device_id:
+            logger.error(f"[{nest_device.device_id}] No Google Home device ID - cannot fetch events")
+            return
 
-        # If Google Home API is available, use its events (better timestamps and event types)
-        # Otherwise fall back to Nest API event list
-        if google_home_events:
-            logger.info(f"[{nest_device.device_id}] Using Google Home API events")
-            await self._process_google_home_events(nest_device, google_home_events)
-        else:
-            logger.info(f"[{nest_device.device_id}] Falling back to Nest API events")
-            await self._process_nest_events(nest_device, end_time_utc)
+        try:
+            start_time_ms = int((end_time_utc.timestamp() - (3 * 60 * 60)) * 1000)
+            end_time_ms = int(end_time_utc.timestamp() * 1000)
+            google_home_events = self._google_home_events.get_events(
+                nest_device.google_home_device_id,
+                start_time_ms,
+                end_time_ms
+            )
 
-    async def _process_google_home_events(self, nest_device: NestDoorbellDevice, google_home_events):
+            if google_home_events:
+                logger.info(f"[{nest_device.device_id}] Fetched {len(google_home_events)} events from Google Home")
+                await self._process_google_home_events(nest_device, google_home_events)
+            else:
+                logger.info(f"[{nest_device.device_id}] No events found in the last 3 hours")
+
+        except Exception as e:
+            logger.error(f"[{nest_device.device_id}] Failed to fetch events from Google Home API: {e}")
+
+    async def _process_google_home_events(self, nest_device: NestDevice, google_home_events):
         """Process events from Google Home API with precise timestamps and event types."""
         skipped = 0
 
@@ -239,7 +236,7 @@ class TelegramEventsSync(object):
         # Save after processing each camera
         self._save_sent_events()
 
-    def _download_video_by_timestamps(self, nest_device: NestDoorbellDevice, start_ms: int, end_ms: int) -> bytes:
+    def _download_video_by_timestamps(self, nest_device: NestDevice, start_ms: int, end_ms: int) -> bytes:
         """Download video from Nest API using millisecond timestamps."""
         try:
             params = {
@@ -254,56 +251,6 @@ class TelegramEventsSync(object):
         except Exception as e:
             logger.error(f"Failed to download video: {e}")
             return None
-
-    async def _process_nest_events(self, nest_device: NestDoorbellDevice, end_time_utc):
-        """Fallback: Process events from Nest API without event types."""
-        all_recent_camera_events = nest_device.get_events(
-            end_time=end_time_utc,
-            duration_minutes=3 * 60
-        )
-
-        logger.info(f"[{nest_device.device_id}] Received {len(all_recent_camera_events)} camera events from Nest API")
-
-        skipped = 0
-        for camera_event_obj in all_recent_camera_events:
-            if camera_event_obj.event_id in self._recent_events:
-                logger.debug(f"Event already sent, skipping..")
-                skipped += 1
-                continue
-
-            logger.debug(f"Downloading camera event: {camera_event_obj}")
-            video_data = nest_device.download_camera_event(camera_event_obj)
-            video_io = BytesIO(video_data)
-
-            # Convert event time to display timezone for the caption
-            event_local_time = camera_event_obj.start_time.astimezone(self._display_timezone)
-            time_str = event_local_time.strftime(self._time_format)
-
-            # No event type available when using Nest API fallback
-            video_caption = f"{nest_device.device_name} [{time_str}]"
-
-            video_media = InputMediaVideo(
-                media=video_io,
-                caption=video_caption
-            )
-
-            if self._dry_run:
-                logger.info(f"[DRY RUN] Would send: {video_caption} ({len(video_data)} bytes)")
-            else:
-                await self._telegram_bot.send_media_group(
-                    chat_id=self._telegram_channel_id,
-                    media=[video_media],
-                    disable_notification=True,
-                )
-                logger.debug("Sent clip successfully")
-
-            self._recent_events.add(camera_event_obj.event_id)
-
-        downloaded_and_sent = len(all_recent_camera_events) - skipped
-        logger.info(f"[{nest_device.device_id}] Downloaded and sent: {downloaded_and_sent}, skipped (already sent): {skipped}")
-
-        # Save after processing each camera
-        self._save_sent_events()
 
     async def sync(self):
         logger.info("Syncing all camera devices")
