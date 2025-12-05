@@ -50,12 +50,16 @@ class TelegramEventsSync(object):
     Event tracking persists across restarts via sent_events.json.
     """
 
-    FORMAT_24H = '%H:%M:%S %d/%m/%Y'
-    FORMAT_12H = '%I:%M:%S %p %m/%d/%Y'
+    FORMAT_24H = '%d/%m/%Y %H:%M:%S'
+    FORMAT_12H = '%m/%d/%Y %I:%M:%S %p'
 
-    SENT_EVENTS_FILE = 'sent_events.json'
+    DATA_DIR = os.getenv('DATA_DIR', '.')
+    SENT_EVENTS_FILE = os.path.join(DATA_DIR, 'sent_events.json')
 
     def __init__(self, telegram_bot_token, telegram_channel_id, nest_camera_devices, google_connection, timezone=None, time_format=None, force_resend_all=False, dry_run=False) -> None:
+        # Ensure data directory exists
+        os.makedirs(self.DATA_DIR, exist_ok=True)
+
         self._telegram_bot = Bot(token=telegram_bot_token)
         self._telegram_channel_id = telegram_channel_id
         self._nest_camera_devices = nest_camera_devices
@@ -213,6 +217,9 @@ class TelegramEventsSync(object):
             google_home_events: List of GoogleHomeEvent objects
         """
         skipped = 0
+
+        # Sort events chronologically (oldest first)
+        google_home_events.sort(key=lambda event: event.start_time)
 
         for gh_event in google_home_events:
             event_id = f"{gh_event.start_time_ms}->{gh_event.end_time_ms}|{nest_device.device_id}"

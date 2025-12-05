@@ -15,8 +15,9 @@ services:
       - REFRESH_INTERVAL_MINUTES=${REFRESH_INTERVAL_MINUTES:-2}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - VERBOSE=${VERBOSE:-false}
+      - DATA_DIR=/app/data
     volumes:
-      - sent-events:/app
+      - sent-events:/app/data
     env_file:
       - .env
 
