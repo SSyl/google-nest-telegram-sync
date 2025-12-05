@@ -53,7 +53,7 @@ class TelegramEventsSync(object):
     FORMAT_24H = '%d/%m/%Y %H:%M:%S'
     FORMAT_12H = '%m/%d/%Y %I:%M:%S %p'
 
-    DATA_DIR = os.getenv('DATA_DIR', '.')
+    DATA_DIR = 'nest-events'
     SENT_EVENTS_FILE = os.path.join(DATA_DIR, 'sent_events.json')
 
     def __init__(self, telegram_bot_token, telegram_channel_id, nest_camera_devices, google_connection, timezone=None, time_format=None, force_resend_all=False, dry_run=False) -> None:

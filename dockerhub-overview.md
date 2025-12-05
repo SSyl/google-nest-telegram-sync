@@ -53,12 +53,12 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - VERBOSE=${VERBOSE:-false}
     volumes:
-      - sent-events:/app/data
+      - nest-events:/app/nest-events
     env_file:
       - .env
 
 volumes:
-  sent-events:
+  nest-events:
 ```
 
 ```bash
@@ -72,7 +72,7 @@ docker compose logs -f nest-sync
 docker run -d \
   --name nest-telegram-sync \
   --env-file .env \
-  -v nest-events:/app/data \
+  -v nest-events:/app/nest-events \
   --restart unless-stopped \
   ssyl/nest-telegram-sync:latest
 
