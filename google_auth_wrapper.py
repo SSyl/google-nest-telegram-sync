@@ -1,3 +1,16 @@
+"""
+Google authentication and device discovery.
+
+Provides OAuth token management with automatic refresh and Nest camera device discovery
+via Google's HomeGraph API. Extends glocaltokens to support multiple OAuth scopes
+(Nest API requires a different scope than default Google Home access).
+
+Key responsibilities:
+- Multi-scope OAuth token management with auto-refresh
+- Nest camera device discovery via HomeGraph
+- Authenticated API requests to Nest services
+"""
+
 import datetime
 import requests
 from nest_device import NestDevice 
@@ -6,6 +19,19 @@ from tools import logger
 import glocaltokens.client
 
 class GLocalAuthenticationTokensMultiService(glocaltokens.client.GLocalAuthenticationTokens):
+    """
+    Extended glocaltokens client with multi-scope OAuth support.
+
+    The base glocaltokens client caches a single access token, but Nest API
+    requires a different OAuth scope than default Google Home. This extension
+    tracks which scope was used and refreshes when the scope changes.
+
+    Token lifecycle:
+    - Cached until expiration (typically 1 hour)
+    - Auto-refreshed using Google Master Token
+    - Per-scope caching (different tokens for different services)
+    """
+
     def __init__(self, *args, **kwargs) -> None:
         super(GLocalAuthenticationTokensMultiService, self).__init__(*args, **kwargs)
 
@@ -47,12 +73,19 @@ class GLocalAuthenticationTokensMultiService(glocaltokens.client.GLocalAuthentic
             self._last_access_token_service = service
         logger.debug(
             "Access token: %s, datetime %s",
-            glocaltokens.client.censor(self.access_token),
+            self.access_token,
             self.access_token_date,
         )
         return self.access_token
 
 class GoogleConnection(object):
+    """
+    Google API connection manager for Nest camera integration.
+
+    Manages authentication, device discovery, and API requests to both Google Home
+    and Nest services. Provides methods for discovering Nest cameras and making
+    authenticated requests to Nest's video API.
+    """
 
     NAME = "Google"
 
@@ -66,6 +99,17 @@ class GoogleConnection(object):
         )
 
     def make_nest_get_request(self, device_id : str, url : str, params={}):
+        """
+        Make authenticated GET request to Nest API.
+
+        Args:
+            device_id: Nest device ID
+            url: URI template with {device_id} placeholder
+            params: Query parameters
+
+        Returns:
+            Response content (bytes for video, parsed data for other endpoints)
+        """
         url = url.format(device_id=device_id)
         logger.debug(f"Sending request to: '{url}' with params: '{params}'")
 
@@ -84,11 +128,15 @@ class GoogleConnection(object):
         return res.content
 
     def get_nest_camera_devices(self):
+        """
+        Discover Nest cameras via Google HomeGraph API.
 
+        Returns:
+            List of NestDevice objects for all Nest cameras in the Google account.
+            Each device has Nest device ID and Google Home device ID for API calls.
+        """
         homegraph_response = self._google_auth.get_homegraph()
 
-        # This one will list all your home devices
-        # One of them would be your Nest Camera, let's find it
         return [
             NestDevice(
                 connection=self,

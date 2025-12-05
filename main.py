@@ -1,6 +1,15 @@
+"""
+Google Nest Camera to Telegram Sync Application
+
+Entry point for the sync service. Initializes Google connection, discovers Nest cameras,
+and schedules periodic syncing of camera events to a Telegram channel.
+
+Uses AsyncIOScheduler to run sync jobs at configurable intervals.
+"""
+
 from dotenv import load_dotenv
 
-load_dotenv()  # take environment variables from .env.
+load_dotenv()
 
 from tools import logger
 from google_auth_wrapper import GoogleConnection
@@ -24,18 +33,22 @@ DRY_RUN = os.getenv("DRY_RUN", "false").lower() in ("true", "1")
 TIMEZONE = os.getenv("TIMEZONE")
 TIME_FORMAT = os.getenv("TIME_FORMAT")
 
-# Get refresh interval from env, default to 2 minutes
 try:
     REFRESH_INTERVAL_MINUTES = int(os.getenv("REFRESH_INTERVAL_MINUTES", "2"))
 except ValueError:
-    logger.warning("Invalid REFRESH_INTERVAL_MINUTES value, using default of 2 minutes")
+    logger.warning("Invalid REFRESH_INTERVAL_MINUTES, using default of 2 minutes")
     REFRESH_INTERVAL_MINUTES = 2
 
 assert GOOGLE_MASTER_TOKEN and GOOGLE_USERNAME and TELEGRAM_CHANNEL_ID and TELEGRAM_BOT_TOKEN
 
 
 def main():
+    """
+    Initialize and run the sync service.
 
+    Sets up Google authentication, discovers Nest cameras, initializes Telegram sync,
+    and starts the scheduler to run periodic syncs.
+    """
     logger.info("Welcome to the Google Nest Doorbell <-> Telegram Sync")
     logger.info(f"Version: {__version__}")
 
@@ -44,7 +57,7 @@ def main():
 
     logger.info("Getting Camera Devices")
     nest_camera_devices = google_connection.get_nest_camera_devices()
-    logger.info(f"Found {len(nest_camera_devices)} Camera Device{'s' if len(nest_camera_devices) > 1 else ''}")
+    logger.info(f"Found {len(nest_camera_devices)} camera device(s)")
 
     tes = TelegramEventsSync(
         telegram_bot_token=TELEGRAM_BOT_TOKEN,
@@ -65,7 +78,6 @@ def main():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    # Schedule the job to run every x minutes
     scheduler = AsyncIOScheduler(event_loop=loop)
     scheduler.add_job(
         tes.sync,

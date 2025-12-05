@@ -1,6 +1,13 @@
 """
-Simple device container for Nest camera information.
-Used for video downloads via Nest API.
+Nest device container and video download interface.
+
+Provides a lightweight wrapper around Nest camera device information and the
+Nest API video download endpoint. All event metadata comes from Google Home API;
+this module only handles video file retrieval.
+
+Architecture:
+- Google Home API: Event metadata, types, timestamps (google_home_events.py)
+- Nest API: Video file download only (this module)
 """
 
 
