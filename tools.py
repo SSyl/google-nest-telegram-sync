@@ -15,6 +15,25 @@ numeric_level = getattr(logging, log_level, logging.INFO)
 VERBOSE = os.getenv('VERBOSE', 'false').lower() in ('true', '1')
 
 
+class SensitiveFormatter(logging.Formatter):
+    """Custom formatter that masks sensitive tokens in the final output"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.patterns = [
+            (re.compile(r'(\d{9,10}):([A-Za-z0-9_-]{25,})'), r'\1:[telegram-bot-token-masked]'),
+            (re.compile(r'(/bot)(\d{9,10}):([A-Za-z0-9_-]{25,})'), r'\1\2:[telegram-bot-token-masked]'),
+            (re.compile(r'(aas_et/[A-Za-z0-9_-]{6})[A-Za-z0-9_/+=\-]{50,}'), r'\1[google-master-token-masked]'),
+            (re.compile(r'([ya]\w{0,3}\.[A-Za-z0-9_-]{6})[A-Za-z0-9_\-\.]{50,}'), r'\1[oauth-access-token-masked]'),
+        ]
+
+    def format(self, record):
+        original = super().format(record)
+        for pattern, replacement in self.patterns:
+            original = pattern.sub(replacement, original)
+        return original
+
+
 class SensitiveDataFilter(logging.Filter):
     """
     Logging filter that masks sensitive credentials in log output.
@@ -54,17 +73,19 @@ class SensitiveDataFilter(logging.Filter):
         return True
 
 
-logging.basicConfig(
-    level=numeric_level,
-    format='[%(asctime)s] %(levelname)s: %(message)s',
+logging.basicConfig(level=numeric_level)
+
+formatter = SensitiveFormatter(
+    fmt='[%(asctime)s] %(levelname)s: %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-sensitive_filter = SensitiveDataFilter()
 root_logger = logging.getLogger()
-root_logger.addFilter(sensitive_filter)
+for handler in root_logger.handlers:
+    handler.setFormatter(formatter)
 
-# Add filter to all handlers to catch library loggers
+sensitive_filter = SensitiveDataFilter()
+root_logger.addFilter(sensitive_filter)
 for handler in root_logger.handlers:
     handler.addFilter(sensitive_filter)
 

@@ -174,8 +174,9 @@ desktop.ini
 *.bak
 *.tmp
 
-# Local event logging file
+# Local event logging
 sent_events.json
+nest-events/
 
 # Claude Code configuration
 .claude/
