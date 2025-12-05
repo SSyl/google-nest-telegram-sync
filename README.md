@@ -42,6 +42,8 @@ Google's official Smart Device Management (SDM) API only exposes person/motion/s
 - **Modern Dependencies**: Updated to latest package versions, Python 3.13+ compatible
 - **Docker Support**: Includes Dockerfile and docker-compose.yaml for containerized deployment
 - **Auto-cleanup**: Automatically removes event records older than 7 days
+- **Robust Error Handling**: Invalid config values fall back to sensible defaults with warnings
+- **Improved Security**: Token masking in logs shows useful prefixes instead of complete redaction
 
 ## Installation
 
@@ -146,8 +148,8 @@ docker run -d \
 | `TELEGRAM_BOT_TOKEN` | ✅ Yes | - | Your Telegram bot token |
 | `TELEGRAM_CHANNEL_ID` | ✅ Yes | - | Your Telegram channel ID |
 | `REFRESH_INTERVAL_MINUTES` | No | `2` | How often to check for new videos (in minutes) |
-| `TIMEZONE` | No | Auto-detected | Timezone for timestamps (e.g., `US/Eastern`, `Europe/London`) |
-| `TIME_FORMAT` | No | System locale | `24h`, `12h`, or custom strftime format |
+| `TIMEZONE` | No | Auto-detected | Timezone for timestamps (e.g., `US/Eastern`, `Europe/London`). Invalid values auto-detect. |
+| `TIME_FORMAT` | No | System locale | `24h`, `12h`, or custom strftime format. Invalid formats fall back to locale default. |
 | `DRY_RUN` | No | `false` | Download videos but don't send to Telegram (testing) |
 | `LOG_LEVEL` | No | `INFO` | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `VERBOSE` | No | `false` | Extra detailed logging (XML dumps, API responses) |
@@ -156,9 +158,10 @@ docker run -d \
 ### Time Format Examples
 
 - `TIME_FORMAT=24h` → `23:40:50 22/10/2025`
-- `TIME_FORMAT=12h` → `11:40:50PM 10/22/2025`
+- `TIME_FORMAT=12h` → `11:40:50 PM 10/22/2025`
 - `TIME_FORMAT=%Y-%m-%d %H:%M:%S` → `2025-10-22 23:40:50`
 - Not set → Uses system locale default
+- Invalid format → Falls back to system locale with warning
 
 ## How It Works
 
@@ -191,9 +194,8 @@ See `requirements.txt` for all Python dependencies.
 docker compose logs -f nest-sync
 ```
 Look for:
-- `Found X Camera Device(s)` - Confirms authentication works
+- `Found X camera device(s)` - Confirms authentication works
 - `Fetched X events from Google Home` - Shows events were found with types
-- `Using Google Home API events` - Confirms primary path is working
 - `Downloaded and sent: X` - Videos successfully sent
 
 **Wrong timestamps?**
