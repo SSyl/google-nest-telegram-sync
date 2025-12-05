@@ -144,34 +144,130 @@ class TelegramEventsSync(object):
 
         logger.info(f"Syncing: {nest_device.device_id}")
         end_time_utc = self._get_current_time_utc()
-        all_recent_camera_events : list[CameraEvent] = nest_device.get_events(
-            end_time = end_time_utc,  # Always use UTC for API calls
-            duration_minutes=3 * 60 # This is the maxmimum time Google is saving my videos
-        )
 
-        logger.info(f"[{nest_device.device_id}] Received {len(all_recent_camera_events)} camera events")
-
-        # Fetch event types from Google Home API (if device ID available)
-        event_types = {}
+        # Fetch events from Google Home API (if device ID available)
+        google_home_events = []
         if nest_device.google_home_device_id:
             try:
                 start_time_ms = int((end_time_utc.timestamp() - (3 * 60 * 60)) * 1000)
                 end_time_ms = int(end_time_utc.timestamp() * 1000)
-                event_types = self._google_home_events.get_event_types(
+                google_home_events = self._google_home_events.get_events(
                     nest_device.google_home_device_id,
                     start_time_ms,
                     end_time_ms
                 )
-                if event_types:
-                    logger.info(f"[{nest_device.device_id}] Fetched {len(event_types)} event type descriptions from Google Home")
+                if google_home_events:
+                    logger.info(f"[{nest_device.device_id}] Fetched {len(google_home_events)} events from Google Home")
             except Exception as e:
-                logger.warning(f"[{nest_device.device_id}] Could not fetch event types: {e}")
+                logger.warning(f"[{nest_device.device_id}] Could not fetch events from Google Home API: {e}")
+
+        # If Google Home API is available, use its events (better timestamps and event types)
+        # Otherwise fall back to Nest API event list
+        if google_home_events:
+            logger.info(f"[{nest_device.device_id}] Using Google Home API events")
+            await self._process_google_home_events(nest_device, google_home_events)
+        else:
+            logger.info(f"[{nest_device.device_id}] Falling back to Nest API events")
+            await self._process_nest_events(nest_device, end_time_utc)
+
+    async def _process_google_home_events(self, nest_device: NestDoorbellDevice, google_home_events):
+        """Process events from Google Home API with precise timestamps and event types."""
+        skipped = 0
+
+        for gh_event in google_home_events:
+            # Generate unique event ID based on Google Home event
+            event_id = f"{gh_event.start_time_ms}->{gh_event.end_time_ms}|{nest_device.device_id}"
+
+            # Check if already sent
+            if event_id in self._recent_events:
+                logger.debug(f"Event ({gh_event.description}) already sent, skipping..")
+                skipped += 1
+                continue
+
+            logger.debug(f"Downloading event: {gh_event.description} [{gh_event.start_time}]")
+
+            # Download video using Google Home API timestamps
+            video_data = self._download_video_by_timestamps(
+                nest_device,
+                gh_event.start_time_ms,
+                gh_event.end_time_ms
+            )
+
+            if not video_data:
+                logger.warning(f"Failed to download video for event: {gh_event.description}")
+                continue
+
+            video_io = BytesIO(video_data)
+
+            # Convert event time to display timezone for the caption
+            event_local_time = gh_event.start_time.astimezone(self._display_timezone)
+            time_str = event_local_time.strftime(self._time_format)
+
+            # Build caption with event type
+            event_type = gh_event.description
+
+            # Format the caption based on event type content
+            # If it already contains " · " or ends with "detected", keep as-is
+            # Otherwise, add "Seen" for natural reading
+            if " · " in event_type or event_type.endswith("detected") or "," in event_type:
+                video_caption = f"{event_type} - {nest_device.device_name} [{time_str}]"
+            else:
+                video_caption = f"{event_type} Seen - {nest_device.device_name} [{time_str}]"
+
+            logger.info(f"Caption: {video_caption}")
+
+            video_media = InputMediaVideo(
+                media=video_io,
+                caption=video_caption
+            )
+
+            if self._dry_run:
+                logger.info(f"[DRY RUN] Would send: {video_caption} ({len(video_data)} bytes)")
+            else:
+                await self._telegram_bot.send_media_group(
+                    chat_id=self._telegram_channel_id,
+                    media=[video_media],
+                    disable_notification=True,
+                )
+                logger.debug("Sent clip successfully")
+
+            self._recent_events.add(event_id)
+
+        downloaded_and_sent = len(google_home_events) - skipped
+        logger.info(f"[{nest_device.device_id}] Downloaded and sent: {downloaded_and_sent}, skipped (already sent): {skipped}")
+
+        # Save after processing each camera
+        self._save_sent_events()
+
+    def _download_video_by_timestamps(self, nest_device: NestDoorbellDevice, start_ms: int, end_ms: int) -> bytes:
+        """Download video from Nest API using millisecond timestamps."""
+        try:
+            params = {
+                "start_time": start_ms,
+                "end_time": end_ms,
+            }
+            return nest_device._connection.make_nest_get_request(
+                nest_device.device_id,
+                nest_device.DOWNLOAD_VIDEO_URI,
+                params=params
+            )
+        except Exception as e:
+            logger.error(f"Failed to download video: {e}")
+            return None
+
+    async def _process_nest_events(self, nest_device: NestDoorbellDevice, end_time_utc):
+        """Fallback: Process events from Nest API without event types."""
+        all_recent_camera_events = nest_device.get_events(
+            end_time=end_time_utc,
+            duration_minutes=3 * 60
+        )
+
+        logger.info(f"[{nest_device.device_id}] Received {len(all_recent_camera_events)} camera events from Nest API")
 
         skipped = 0
         for camera_event_obj in all_recent_camera_events:
-            # Always check if already sent in THIS run
             if camera_event_obj.event_id in self._recent_events:
-                logger.debug(f"CameraEvent ({camera_event_obj}) already sent, skipping..")
+                logger.debug(f"Event already sent, skipping..")
                 skipped += 1
                 continue
 
@@ -183,46 +279,8 @@ class TelegramEventsSync(object):
             event_local_time = camera_event_obj.start_time.astimezone(self._display_timezone)
             time_str = event_local_time.strftime(self._time_format)
 
-            # Try to find event type from Google Home API
-            event_timestamp_ms = int(camera_event_obj.start_time.timestamp() * 1000)
-            event_timestamp_str = str(event_timestamp_ms)
-            event_type = event_types.get(event_timestamp_str)
-            matched_timestamp = None
-
-            # If no exact match, try fuzzy matching within ±10 seconds
-            if not event_type and event_types:
-                logger.debug(f"No exact match for timestamp: {event_timestamp_str}")
-                logger.debug(f"Available timestamps: {list(event_types.keys())[:5]}")
-
-                # Tolerance: ±10 seconds (10000 milliseconds)
-                TOLERANCE_MS = 10000
-                closest_match = None
-                closest_distance = float('inf')
-
-                for available_ts_str in event_types.keys():
-                    available_ts = int(available_ts_str)
-                    distance = abs(event_timestamp_ms - available_ts)
-
-                    if distance <= TOLERANCE_MS and distance < closest_distance:
-                        closest_distance = distance
-                        closest_match = available_ts_str
-
-                if closest_match:
-                    event_type = event_types[closest_match]
-                    matched_timestamp = closest_match
-                    logger.info(f"Fuzzy matched event type '{event_type}' (offset: {closest_distance}ms)")
-
-            # Build caption with event type if available
-            if event_type:
-                video_caption = f"{event_type} - {nest_device.device_name} [{time_str}]"
-                if matched_timestamp:
-                    logger.info(f"Using fuzzy-matched event type: {event_type}")
-                else:
-                    logger.info(f"Using exact-matched event type: {event_type}")
-            else:
-                video_caption = f"{nest_device.device_name} [{time_str}]"
-                if event_types:
-                    logger.warning(f"No event type match found within {TOLERANCE_MS}ms tolerance")
+            # No event type available when using Nest API fallback
+            video_caption = f"{nest_device.device_name} [{time_str}]"
 
             video_media = InputMediaVideo(
                 media=video_io,
@@ -243,7 +301,7 @@ class TelegramEventsSync(object):
 
         downloaded_and_sent = len(all_recent_camera_events) - skipped
         logger.info(f"[{nest_device.device_id}] Downloaded and sent: {downloaded_and_sent}, skipped (already sent): {skipped}")
-        
+
         # Save after processing each camera
         self._save_sent_events()
 

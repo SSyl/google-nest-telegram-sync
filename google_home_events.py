@@ -1,11 +1,32 @@
 """
-Google Home API integration for fetching camera event types.
-Provides event descriptions like "Package detected · Person" for Nest camera events.
+Google Home API integration for fetching camera events.
+Provides complete event data including type, timestamps, and video clip info.
 """
 
 import requests
-from typing import Dict, Optional
+import datetime
+from typing import Dict, List, Optional
+from dataclasses import dataclass
 from tools import logger
+
+
+@dataclass
+class GoogleHomeEvent:
+    """Represents a camera event from Google Home API."""
+    event_id: str
+    description: str  # e.g., "Person", "Package detected · Person"
+    start_time: datetime.datetime  # UTC
+    end_time: datetime.datetime    # UTC
+
+    @property
+    def start_time_ms(self) -> int:
+        """Start time in milliseconds since epoch."""
+        return int(self.start_time.timestamp() * 1000)
+
+    @property
+    def end_time_ms(self) -> int:
+        """End time in milliseconds since epoch."""
+        return int(self.end_time.timestamp() * 1000)
 
 
 class GoogleHomeEvents:
@@ -32,9 +53,9 @@ class GoogleHomeEvents:
         """
         self._connection = google_connection
 
-    def get_event_types(self, device_id: str, start_time_ms: int, end_time_ms: int) -> Dict[str, str]:
+    def get_events(self, device_id: str, start_time_ms: int, end_time_ms: int) -> List[GoogleHomeEvent]:
         """
-        Fetch event types from Google Home API for a specific time range.
+        Fetch events from Google Home API for a specific time range.
 
         Args:
             device_id: Device/structure ID (from Google Home, not Nest device ID)
@@ -42,16 +63,15 @@ class GoogleHomeEvents:
             end_time_ms: End time in milliseconds since epoch
 
         Returns:
-            Dictionary mapping timestamp_ms -> event_description
-            Example: {"1764825280332": "Package no longer seen · Person"}
-            Returns empty dict if API call fails (graceful degradation)
+            List of GoogleHomeEvent objects with event type and precise timestamps
+            Returns empty list if API call fails (graceful degradation)
         """
         try:
             # Get OAuth access token (auto-refreshed by glocaltokens)
             access_token = self._connection._google_auth.get_access_token()
             if not access_token:
                 logger.warning("Could not get access token for Google Home API")
-                return {}
+                return []
 
             # Prepare request
             end_sec = end_time_ms // 1000
@@ -66,7 +86,7 @@ class GoogleHomeEvents:
                 'Authorization': f'Bearer {access_token}',
             }
 
-            logger.debug(f"Fetching event types from Google Home API for device {device_id}")
+            logger.debug(f"Fetching events from Google Home API for device {device_id}")
 
             response = requests.post(
                 self.FOYER_ENDPOINT,
@@ -77,26 +97,30 @@ class GoogleHomeEvents:
 
             if response.status_code != 200:
                 logger.warning(f"Google Home API returned status {response.status_code}")
-                return {}
+                return []
 
             # Parse response
             return self._parse_events(response.json())
 
         except Exception as e:
-            logger.warning(f"Failed to fetch event types from Google Home API: {e}")
-            return {}
+            logger.warning(f"Failed to fetch events from Google Home API: {e}")
+            return []
 
-    def _parse_events(self, timeline_data) -> Dict[str, str]:
+    def _parse_events(self, timeline_data) -> List[GoogleHomeEvent]:
         """
-        Parse event descriptions from Google Home API response.
+        Parse events from Google Home API response.
 
-        The response contains events with human-readable descriptions.
-        We map them by timestamp (in milliseconds) for easy lookup.
+        The response contains events with human-readable descriptions and precise timestamps.
+        Multiple events at the same timestamp are combined into a single event.
 
         Returns:
-            Dict mapping "start_time_ms" -> "event_description"
+            List of GoogleHomeEvent objects
         """
-        events = {}
+        from tools import VERBOSE
+        import pytz
+
+        events = []
+        events_by_timestamp = {}  # Temp dict for combining events at same time
 
         try:
             if not timeline_data or len(timeline_data) < 2:
@@ -117,14 +141,47 @@ class GoogleHomeEvents:
                     if not event or len(event) < 5:
                         continue
 
+                    if VERBOSE:
+                        logger.debug(f"Full event structure (length {len(event)}): {event[:10]}")
+
+                    event_id = str(event[0])
                     event_description = event[1]
                     start_time_array = event[3]  # [seconds, nanoseconds]
+                    end_time_array = event[4]    # [seconds, nanoseconds]
 
-                    if event_description and start_time_array and len(start_time_array) >= 2:
-                        # Convert to milliseconds timestamp for matching
-                        start_ms = str(int(start_time_array[0]) * 1000 + int(start_time_array[1]) // 1000000)
-                        events[start_ms] = event_description
-                        logger.debug(f"Found event: {event_description} at timestamp {start_ms}")
+                    if not (event_description and start_time_array and end_time_array
+                            and len(start_time_array) >= 2 and len(end_time_array) >= 2):
+                        continue
+
+                    # Convert to datetime objects (UTC)
+                    start_timestamp = int(start_time_array[0]) + int(start_time_array[1]) / 1e9
+                    end_timestamp = int(end_time_array[0]) + int(end_time_array[1]) / 1e9
+
+                    start_time = datetime.datetime.fromtimestamp(start_timestamp, tz=pytz.UTC)
+                    end_time = datetime.datetime.fromtimestamp(end_timestamp, tz=pytz.UTC)
+
+                    # Use millisecond timestamp as key for combining events
+                    start_ms = int(start_timestamp * 1000)
+
+                    # Handle multiple events at same timestamp by combining descriptions
+                    if start_ms in events_by_timestamp:
+                        existing = events_by_timestamp[start_ms]
+                        # Combine descriptions if different
+                        if event_description not in existing.description:
+                            existing.description = f"{existing.description}, {event_description}"
+                            logger.info(f"Combined events at {start_ms}: {existing.description}")
+                    else:
+                        new_event = GoogleHomeEvent(
+                            event_id=event_id,
+                            description=event_description,
+                            start_time=start_time,
+                            end_time=end_time
+                        )
+                        events_by_timestamp[start_ms] = new_event
+                        logger.debug(f"Found event: {event_description} at {start_time}")
+
+            # Convert dict to list
+            events = list(events_by_timestamp.values())
 
         except Exception as e:
             logger.warning(f"Error parsing Google Home events: {e}")
