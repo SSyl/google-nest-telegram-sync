@@ -12,18 +12,30 @@ Additional thanks to:
 
 ## Overview
 
-Automatically sync video clips from your Google Nest cameras to a Telegram channel. Uses polling to capture **ALL event types** (person, package, animal, vehicle, motion, sound) without requiring Google's Smart Device Management API.
+Automatically sync video clips from your Google Nest cameras to a Telegram channel with **full event type detection** (person, package, animal, vehicle, motion, sound). Uses Google's unofficial APIs to capture all events without requiring a Nest Aware subscription or Smart Device Management API.
 
 **For personal use only. Use at your own risk.**
 
-### Why Polling Instead of Google's Official API?
+### Why This Approach?
 
-Google's Smart Device Management (SDM) API only exposes person/motion/sound events. It **completely misses package, animal, and vehicle detection**. This project uses Google's unofficial Nest API with polling to ensure you get every event, even though we can't determine the specific event type.
+Google's official Smart Device Management (SDM) API only exposes person/motion/sound events and **completely misses package, animal, and vehicle detection**. This project uses Google's internal Home API (the same API their website uses) to get complete event information including precise event types.
 
-**Trade-off:** Video captions show device name and timestamp only (e.g., "Front Door [11:40:50 PM]"), without event type labels.
+**Benefits:**
+- Full event type detection with accurate labels
+- Multiple event types combined automatically (e.g., "Package seen · Person")
+- No Nest Aware subscription required
+- Works with the same APIs Google's own website uses
+
+**Example captions:**
+- "Package seen · Person - Front Door [07:23:54 PM 12/04/2025]"
+- "Person Seen - Front Door [03:50:39 PM 12/04/2025]"
+- "Motion Detected - Back Yard [11:15:32 AM 12/04/2025]"
 
 ## Key Improvements Over Original
 
+- **Full Event Type Detection**: Uses Google Home API to show event types (person, package, animal, vehicle, motion, sound) in captions
+- **Automatic Event Combining**: Multiple concurrent events shown together (e.g., "Package seen · Person")
+- **Precise Timestamp Matching**: Uses Google's internal API timestamps for perfect event-to-video alignment
 - **Configurable Timezone**: Auto-detects system timezone or set via `TIMEZONE` environment variable
 - **Flexible Time Formatting**: Choose 24h/12h format or provide custom strftime patterns
 - **Persistent Event Tracking**: Saves to `sent_events.json` to prevent duplicate sends across restarts
@@ -151,11 +163,18 @@ docker run -d \
 ## How It Works
 
 1. The script runs on a configurable schedule (default: every 2 minutes)
-2. Checks for new camera events in the last 3 hours (Google's retention limit)
-3. Downloads any new video clips
-4. Sends them to your Telegram channel with timestamp
+2. Fetches camera events from **Google Home API** (last 3 hours)
+   - Gets event types (person, package, animal, vehicle, motion, sound)
+   - Gets precise timestamps for each event
+   - Automatically combines multiple concurrent events
+3. Downloads video clips from **Nest API** using timestamps from Google Home
+4. Sends videos to your Telegram channel with event type and timestamp
 5. Tracks sent events in `sent_events.json` to prevent duplicates
 6. Auto-cleans events older than 7 days from the tracking file
+
+**Architecture Note:** This mirrors Google's own website architecture:
+- Google Home API provides event metadata and types
+- Nest API provides video file storage and delivery
 
 ## Requirements
 
@@ -173,7 +192,8 @@ docker compose logs -f nest-sync
 ```
 Look for:
 - `Found X Camera Device(s)` - Confirms authentication works
-- `Received X camera events` - Shows events were found
+- `Fetched X events from Google Home` - Shows events were found with types
+- `Using Google Home API events` - Confirms primary path is working
 - `Downloaded and sent: X` - Videos successfully sent
 
 **Wrong timestamps?**
