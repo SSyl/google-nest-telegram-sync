@@ -1,6 +1,16 @@
 """
-Google Home API integration for fetching camera events.
-Provides complete event data including type, timestamps, and video clip info.
+Google Home API integration for camera event metadata.
+
+Fetches event data from Google's internal Foyer API (used by home.google.com website).
+Provides event types (person, package, motion, etc.) and precise timestamps.
+
+This is the primary event source - Nest API is only used for video file downloads.
+
+Architecture:
+- Uses same API as Google's official website (discovered via browser network trace)
+- Returns event metadata: type, description, start/end timestamps
+- Automatically combines multiple events at same timestamp
+- Graceful degradation: returns empty list if API fails
 """
 
 import requests
@@ -12,11 +22,19 @@ from tools import logger
 
 @dataclass
 class GoogleHomeEvent:
-    """Represents a camera event from Google Home API."""
+    """
+    Camera event from Google Home API.
+
+    Attributes:
+        event_id: Unique identifier from Google Home
+        description: Event type (e.g., "Person", "Package seen · Person")
+        start_time: Event start in UTC (datetime object)
+        end_time: Event end in UTC (datetime object)
+    """
     event_id: str
-    description: str  # e.g., "Person", "Package detected · Person"
-    start_time: datetime.datetime  # UTC
-    end_time: datetime.datetime    # UTC
+    description: str
+    start_time: datetime.datetime
+    end_time: datetime.datetime
 
     @property
     def start_time_ms(self) -> int:
@@ -31,8 +49,14 @@ class GoogleHomeEvent:
 
 class GoogleHomeEvents:
     """
-    Fetches camera event metadata from Google Home API using OAuth authentication.
-    Uses existing GoogleConnection for authentication - no cookies needed.
+    Google Home Foyer API client for camera events.
+
+    Fetches event metadata from the same API used by home.google.com website.
+    Provides event types and precise timestamps that align with Nest video files.
+
+    This is Google's production architecture:
+    - Google Home (Foyer) API: Event metadata/types (this class)
+    - Nest API: Video file storage/delivery (nest_device.py)
     """
 
     FOYER_ENDPOINT = "https://googlehomefoyer-pa.clients6.google.com/$rpc/google.internal.home.foyer.v1.CameraService/ListTimelinePeriods"
@@ -67,13 +91,12 @@ class GoogleHomeEvents:
             Returns empty list if API call fails (graceful degradation)
         """
         try:
-            # Get OAuth access token (auto-refreshed by glocaltokens)
+            # OAuth access token (auto-refreshed by glocaltokens)
             access_token = self._connection._google_auth.get_access_token()
             if not access_token:
                 logger.warning("Could not get access token for Google Home API")
                 return []
 
-            # Prepare request
             end_sec = end_time_ms // 1000
             end_ns = (end_time_ms % 1000) * 1000000
             start_sec = start_time_ms // 1000
@@ -163,10 +186,8 @@ class GoogleHomeEvents:
                     # Use millisecond timestamp as key for combining events
                     start_ms = int(start_timestamp * 1000)
 
-                    # Handle multiple events at same timestamp by combining descriptions
                     if start_ms in events_by_timestamp:
                         existing = events_by_timestamp[start_ms]
-                        # Combine descriptions if different
                         if event_description not in existing.description:
                             existing.description = f"{existing.description}, {event_description}"
                             logger.info(f"Combined events at {start_ms}: {existing.description}")
@@ -180,7 +201,6 @@ class GoogleHomeEvents:
                         events_by_timestamp[start_ms] = new_event
                         logger.debug(f"Found event: {event_description} at {start_time}")
 
-            # Convert dict to list
             events = list(events_by_timestamp.values())
 
         except Exception as e:
